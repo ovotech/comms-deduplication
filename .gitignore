@@ -1,0 +1,24 @@
+# IntelliJ
+.idea/
+*.iws
+out/
+.idea_modules/
+atlassian-ide-plugin.xml
+
+# sbt and scala
+dist/*
+target/
+lib_managed/
+src_managed/
+project/boot/
+project/plugins/project/
+.history
+.cache
+.lib/
+*.class
+*.log
+
+#Mac
+.DS_Store
+
+.init-env.sh

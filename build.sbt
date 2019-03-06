@@ -1,12 +1,24 @@
-lazy val `consume-without-duplicate` = (project in file(".")).
-  settings(
-    inThisBuild(List(
-      organization := "com.example",
-      scalaVersion := "2.12.7",
-      version := "1.0-SNAPSHOT"
-    )),
+lazy val deduplication = (project in file("."))
+  .enablePlugins(BuildInfoPlugin)
+  .settings(
+    name := "deduplication",
+    organization := "com.ovoenergy.comms",
+    organizationHomepage := Some(url("http://www.ovoenergy.com")),
+    scalaVersion := "2.12.8",
 
-    name := "consume-without-duplicate",
+    scalafmtOnCompile := true,
+
+    buildInfoPackage := "deduplication",
+    version ~= (_.replace('+', '-')),
+    dynver ~= (_.replace('+', '-')),
+
+    bintrayOrganization := Some("ovotech"),
+    bintrayRepository := "maven",
+    bintrayOmitLicense := true,
+
+    releaseEarlyWith := BintrayPublisher,
+    releaseEarlyEnableSyncToMaven := false,
+    releaseEarlyNoGpg := true,
 
     scalacOptions ++= Seq(
       "-unchecked",
@@ -24,23 +36,28 @@ lazy val `consume-without-duplicate` = (project in file(".")).
     ),
 
     resolvers ++= Seq(
-      "confluent-release" at "http://packages.confluent.io/maven/"
+      Resolver.bintrayRepo("ovotech", "maven"),
     ),
 
-    libraryDependencies ++= Seq(
-      "is.cir" %% "ciris-core" % "0.10.2",
-      "is.cir" %% "ciris-cats" % "0.10.2",
-      "is.cir" %% "ciris-cats-effect" % "0.10.2",
-      "is.cir" %% "ciris-generic" % "0.10.2",
-      "com.ovoenergy" %% "ciris-credstash" % "0.6",
-      "com.ovoenergy" %% "ciris-aiven-kafka" % "0.6",
-      "com.ovoenergy" %% "fs2-kafka" % "0.16.0",
-      "com.ovoenergy" %% "kafka-serialization-core" % "0.3.17",
-      "com.ovoenergy" %% "kafka-serialization-cats" % "0.3.17",
-      "com.ovoenergy" %% "kafka-serialization-avro4s" % "0.3.17",
-      "com.gu" %% "scanamo" % "1.0.0-M7",
-      "com.gu" %% "scanamo-formats" % "1.0.0-M7",
-      "com.ovoenergy" %% "comms-kafka-messages" % "1.79.2",
-      "io.confluent" % "kafka-avro-serializer" % "5.0.1"
-    )
+    libraryDependencies ++=
+      dep("org.typelevel")("1.6.0")(
+        "cats-core"
+      ) ++
+      dep("org.typelevel")("1.2.0")(
+        "cats-effect"
+      ) ++
+      dep("com.gu")("1.0.0-M7")(
+        "scanamo",
+        "scanamo-formats"
+      ) ++
+      Seq(
+        "org.scalatest" %% "scalatest" % "3.0.1",
+        "org.scalacheck" %% "scalacheck" % "1.13.5",
+      ).map(_ % Test) ++
+      dep("com.ovoenergy")("1.8.9-3-16ed0aab-20190306-1042")(
+        "comms-docker-testkit-core",
+        "comms-docker-testkit-clients"
+      ).map(_ % Test)
   )
+
+def dep(org: String)(version: String)(libs: String*) = libs.map(org %% _ % version)

@@ -4,7 +4,34 @@ lazy val deduplication = (project in file("."))
     name := "deduplication",
     organization := "com.ovoenergy.comms",
     organizationHomepage := Some(url("http://www.ovoenergy.com")),
+    licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
     scalaVersion := "2.12.8",
+
+    scmInfo := Some(ScmInfo(
+      url("https://github.com/ovotech/comms-deduplication"),
+      "git@github.com:ovotech/comms-deduplication.git"
+    )),
+
+    developers := List(
+      Developer(
+        "filosganga",
+        "Filippo De Luca",
+        "filippo.deluca@ovoenergy.com",
+        url("https://github.com/filosganga")
+      ),
+      Developer(
+        "ZsoltBalvanyos",
+        "Zsolt Balvanyos",
+        "zsolt.balvanyos@ovoenergy.com",
+        url("https://github.com/ZsoltBalvanyos")
+      ),
+      Developer(
+        "SystemFw",
+        "Fabio Labella",
+        "fabio.labella@ovoenergy.com",
+        url("https://github.com/SystemFw")
+      )
+    ),
 
     scalafmtOnCompile := true,
 
@@ -13,6 +40,8 @@ lazy val deduplication = (project in file("."))
     dynver ~= (_.replace('+', '-')),
 
     bintrayOrganization := Some("ovotech"),
+    bintrayPackage := { "comms-" ++ moduleName.value },
+    bintrayPackageLabels := Seq("duplication", "deduplication"),
     bintrayRepository := "maven",
     bintrayOmitLicense := true,
 

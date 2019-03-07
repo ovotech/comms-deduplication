@@ -119,6 +119,10 @@ jobs:
     - *configure_git_credetials
 
     - run:
+        name: Permission to tag.sh
+        command: chmod -x build/tag.sh
+
+    - run:
         name: Tag Release
         command: build/tag.sh
 

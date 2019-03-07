@@ -17,9 +17,9 @@ object model {
     val processing: Status = Processing
     val processed: Status = Processed
 
-    def fromString(s: String): Option[Status] = s match {
-      case "Processing" => Processing.some
-      case "Processed" => Processed.some
+    def fromString(s: String): Option[Status] = s.toLowerCase match {
+      case "processing" => Processing.some
+      case "processed" => Processed.some
       case _ => none[Status]
     }
 

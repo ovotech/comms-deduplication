@@ -54,7 +54,7 @@ lazy val deduplication = (project in file("."))
         "org.scalatest" %% "scalatest" % "3.0.1",
         "org.scalacheck" %% "scalacheck" % "1.13.5",
       ).map(_ % Test) ++
-      dep("com.ovoenergy")("1.8.9-3-16ed0aab-20190306-1042")(
+      dep("com.ovoenergy")("1.8.11")(
         "comms-docker-testkit-core",
         "comms-docker-testkit-clients"
       ).map(_ % Test)

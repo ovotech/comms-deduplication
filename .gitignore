@@ -18,6 +18,10 @@ project/plugins/project/
 *.class
 *.log
 
+# Metals
+.metals/
+.bloop/
+
 #Mac
 .DS_Store
 

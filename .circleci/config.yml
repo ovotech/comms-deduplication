@@ -64,6 +64,10 @@ jobs:
       TEST_TIME_FACTOR: 5.0
 
     steps:
+
+    - setup_remote_docker:
+        docker_layer_caching: true
+
     - checkout
 
     - attach_workspace:
@@ -86,6 +90,9 @@ jobs:
     <<: *defaults
 
     steps:
+
+    - setup_remote_docker:
+        docker_layer_caching: true
 
     - checkout
 

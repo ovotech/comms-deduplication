@@ -1,9 +1,6 @@
-version: 2
+version: 2.1
 
 defaults:
-- &defaults
-  docker:
-  - image: circleci/openjdk:8-jdk
 - &save_dependencies_cache
   save_cache:
     paths:
@@ -26,9 +23,30 @@ defaults:
       ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
       git config user.name ovo-comms-circleci
       git config user.email "hello.comms@ovoenergy.com"
+
+
+executors:
+  docker:
+    docker:
+    - image: circleci/openjdk:8-jdk
+    environment:
+      JAVA_OPTS: "-Xmx1g -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
+      AWS_REGION: "eu-west-1"
+      AWS_DEFAULT_REGION: "eu-west-1"
+      TEST_TIME_SCALE_FACTOR: 3
+  machine:
+    machine:
+      enabled: true
+    environment:
+      JAVA_OPTS: "-Xmx1g -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
+      AWS_REGION: "eu-west-1"
+      AWS_DEFAULT_REGION: "eu-west-1"
+      TEST_TIME_SCALE_FACTOR: 3
+
 jobs:
   build:
-    <<: *defaults
+
+    executor: docker
 
     steps:
 
@@ -57,7 +75,7 @@ jobs:
 
   unit_test:
 
-    <<: *defaults
+    executor: machine
 
     environment:
       JAVA_OPTS: "-XX:+CMSClassUnloadingEnabled -XX:MaxMetaspaceSize=512M -XX:MetaspaceSize=512M -Xms1G -Xmx1G -XX:+PrintGCDetails -XX:+PrintGCTimeStamps -Xloggc:target/gc.log"
@@ -66,7 +84,7 @@ jobs:
     steps:
 
     - setup_remote_docker:
-        docker_layer_caching: false
+        docker_layer_caching: true
 
     - checkout
 
@@ -87,12 +105,12 @@ jobs:
 
   publish:
 
-    <<: *defaults
+    executor: docker
 
     steps:
 
     - setup_remote_docker:
-        docker_layer_caching: false
+        docker_layer_caching: true
 
     - checkout
 
@@ -112,7 +130,6 @@ jobs:
         command: sbt releaseEarly
 
 workflows:
-  version: 2
   build-and-deploy:
     jobs:
     - build

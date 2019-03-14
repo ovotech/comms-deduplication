@@ -1,29 +1,23 @@
 package com.ovoenergy.comms.deduplication
 
-import java.time.Duration
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
 
-import cats.effect.{IO, Resource, Sync, Timer}
+import cats.effect._
 import cats.implicits._
 
 import com.ovoenergy.comms.dockertestkit.{DynamoDbKit, ManagedContainers}
 import com.ovoenergy.comms.dockertestkit.dynamoDb.DynamoDbClient
-import com.ovoenergy.comms.dockertestkit.Model.TableName
 
 import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType._
-import com.amazonaws.{ClientConfiguration, Protocol}
-import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
-import com.amazonaws.regions.Regions
-import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsyncClientBuilder}
 
-import org.scalacheck.Arbitrary.arbitrary
-import org.scalatest.prop.GeneratorDrivenPropertyChecks
+import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
 import org.scalatest.{FlatSpec, Matchers}
 
 class ProcessingStoreSpec
     extends FlatSpec
     with Matchers
-    with GeneratorDrivenPropertyChecks
+    with ScalaCheckDrivenPropertyChecks
     with DynamoDbClient
     with DynamoDbKit {
 
@@ -78,7 +72,7 @@ class ProcessingStoreSpec
       Config(
         Config.TableName(table.value),
         "tester",
-        Duration.ofSeconds(1)
+        1.second
       ),
       dbClient
     )

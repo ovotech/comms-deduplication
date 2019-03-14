@@ -1,41 +1,70 @@
+
+
 lazy val deduplication = (project in file("."))
   .enablePlugins(BuildInfoPlugin)
   .settings(
+    inThisBuild(List(
+      organization := "com.ovoenergy.comms",
+      organizationHomepage := Some(url("http://www.ovoenergy.com")),
+      licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
+      scalaVersion := "2.12.8",
+
+      scmInfo := Some(ScmInfo(
+        url("https://github.com/ovotech/comms-deduplication"),
+        "git@github.com:ovotech/comms-deduplication.git"
+      )),
+
+      developers := List(
+        Developer(
+          "filosganga",
+          "Filippo De Luca",
+          "filippo.deluca@ovoenergy.com",
+          url("https://github.com/filosganga")
+        ),
+        Developer(
+          "ZsoltBalvanyos",
+          "Zsolt Balvanyos",
+          "zsolt.balvanyos@ovoenergy.com",
+          url("https://github.com/ZsoltBalvanyos")
+        ),
+        Developer(
+          "SystemFw",
+          "Fabio Labella",
+          "fabio.labella@ovoenergy.com",
+          url("https://github.com/SystemFw")
+        )
+      ),
+
+      resolvers ++= Seq(
+        Resolver.bintrayRepo("ovotech", "maven"),
+      ),
+
+      scalacOptions ++= Seq(
+        "-unchecked",
+        "-deprecation",
+        "-encoding",
+        "utf8",
+        "-target:jvm-1.8",
+        "-feature",
+        "-language:implicitConversions",
+        "-language:higherKinds",
+        "-language:existentials",
+        "-Ypartial-unification",
+        "-Ywarn-unused-import",
+        "-Ywarn-value-discard"
+      ),
+
+      excludeDependencies ++= Seq(
+        ExclusionRule("commons-logging", "commons-logging")
+      ),
+
+      scalafmtOnCompile := true,
+    ))
+  )
+  .settings(
     name := "deduplication",
-    organization := "com.ovoenergy.comms",
-    organizationHomepage := Some(url("http://www.ovoenergy.com")),
-    licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
-    scalaVersion := "2.12.8",
 
-    scmInfo := Some(ScmInfo(
-      url("https://github.com/ovotech/comms-deduplication"),
-      "git@github.com:ovotech/comms-deduplication.git"
-    )),
-
-    developers := List(
-      Developer(
-        "filosganga",
-        "Filippo De Luca",
-        "filippo.deluca@ovoenergy.com",
-        url("https://github.com/filosganga")
-      ),
-      Developer(
-        "ZsoltBalvanyos",
-        "Zsolt Balvanyos",
-        "zsolt.balvanyos@ovoenergy.com",
-        url("https://github.com/ZsoltBalvanyos")
-      ),
-      Developer(
-        "SystemFw",
-        "Fabio Labella",
-        "fabio.labella@ovoenergy.com",
-        url("https://github.com/SystemFw")
-      )
-    ),
-
-    scalafmtOnCompile := true,
-
-    buildInfoPackage := "deduplication",
+    buildInfoPackage := "com.ovoenergy.comms.deduplication",
     version ~= (_.replace('+', '-')),
     dynver ~= (_.replace('+', '-')),
 
@@ -49,25 +78,6 @@ lazy val deduplication = (project in file("."))
     releaseEarlyEnableSyncToMaven := false,
     releaseEarlyNoGpg := true,
 
-    scalacOptions ++= Seq(
-      "-unchecked",
-      "-deprecation",
-      "-encoding",
-      "utf8",
-      "-target:jvm-1.8",
-      "-feature",
-      "-language:implicitConversions",
-      "-language:higherKinds",
-      "-language:existentials",
-      "-Ypartial-unification",
-      "-Ywarn-unused-import",
-      "-Ywarn-value-discard"
-    ),
-
-    resolvers ++= Seq(
-      Resolver.bintrayRepo("ovotech", "maven"),
-    ),
-
     libraryDependencies ++=
       dep("org.typelevel")("1.6.0")(
         "cats-core"
@@ -75,13 +85,23 @@ lazy val deduplication = (project in file("."))
       dep("org.typelevel")("1.2.0")(
         "cats-effect"
       ) ++
-      dep("com.gu")("1.0.0-M7")(
+      dep("org.scala-lang.modules")("0.9.0")(
+        "scala-java8-compat"
+      ) ++
+      dep("com.gu")("1.0.0-M8")(
         "scanamo",
         "scanamo-formats"
       ) ++
+      udep("org.slf4j")("1.7.26")(
+        "slf4j-api"
+      ) ++
+      udep("org.slf4j")("1.7.26")(
+        "jcl-over-slf4j"
+      ).map(_ % Test) ++
       Seq(
-        "org.scalatest" %% "scalatest" % "3.0.1",
-        "org.scalacheck" %% "scalacheck" % "1.13.5",
+        "org.scalatest" %% "scalatest" % "3.0.6",
+        "org.scalacheck" %% "scalacheck" % "1.14.0",
+        "ch.qos.logback" % "logback-classic" % "1.2.3",
       ).map(_ % Test) ++
       dep("com.ovoenergy")("1.8.11")(
         "comms-docker-testkit-core",
@@ -90,3 +110,4 @@ lazy val deduplication = (project in file("."))
   )
 
 def dep(org: String)(version: String)(libs: String*) = libs.map(org %% _ % version)
+def udep(org: String)(version: String)(libs: String*) = libs.map(org % _ % version)

@@ -1,6 +1,9 @@
 package com.ovoenergy.comms.deduplication
 
-import java.time.{Duration, Instant}
+import java.time.Instant
+import scala.compat.java8.DurationConverters._
+
+import scala.concurrent.duration._
 
 import cats.implicits._
 
@@ -30,8 +33,8 @@ object model {
 
   case class Expiration(instant: Instant) {
 
-    def plus(d: Duration): Expiration =
-      copy(instant.plus(d))
+    def plus(d: FiniteDuration): Expiration =
+      copy(instant.plus(d.toJava))
   }
 
   case class Process[ID, ProcessorID](

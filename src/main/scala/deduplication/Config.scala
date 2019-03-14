@@ -1,7 +1,8 @@
-package deduplication
+package com.ovoenergy.comms.deduplication
 
 import java.time.Duration
-import deduplication.Config.TableName
+
+import Config.TableName
 
 case class Config[ProcessorID](tableName: TableName, processorId: ProcessorID, ttl: Duration)
 

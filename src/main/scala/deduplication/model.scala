@@ -1,4 +1,4 @@
-package deduplication
+package com.ovoenergy.comms.deduplication
 
 import java.time.{Duration, Instant}
 

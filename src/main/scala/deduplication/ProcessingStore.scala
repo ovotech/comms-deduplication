@@ -4,6 +4,7 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 import scala.concurrent.ExecutionContext
+import scala.compat.java8.DurationConverters._
 
 import cats.effect._
 import cats.implicits._
@@ -31,9 +32,9 @@ object ProcessingStore {
     DynamoFormat.coercedXmap[Status, String, IllegalArgumentException](Status.unsafeFromString)(
       _.toString)
 
-  private implicit val expirationDynamoFormat: DynamoFormat[Expiration] =
-    DynamoFormat.coercedXmap[Expiration, Long, IllegalArgumentException](x =>
-      Expiration(Instant.ofEpochSecond(x)))(_.instant.getEpochSecond)
+  private implicit val instantDynamoFormat: DynamoFormat[Instant] =
+    DynamoFormat.coercedXmap[Instant, Long, IllegalArgumentException](x => Instant.ofEpochMilli(x))(
+      _.toEpochMilli)
 
   def resource[F[_]: Async, ID, ProcessorID](config: Config[ProcessorID])(
       implicit idDf: DynamoFormat[ID],
@@ -67,20 +68,30 @@ object ProcessingStore {
       override def processing(id: ID): F[Boolean] = {
         for {
           now <- timer.clock
-            .realTime(TimeUnit.SECONDS)
-            .map(Instant.ofEpochSecond)
-            .map(Expiration.apply)
+            .realTime(TimeUnit.MILLISECONDS)
+            .map(Instant.ofEpochMilli)
+
           result <- scanamoF(
-            table
-              .given(
-                (not('id -> id) and not('processId -> config.processorId)) or ('expiredOn >= now and 'status -> Status.processing))
-              .put(Process(id, config.processorId, Status.processing, Some(now.plus(config.ttl)))))
-            .map(_.fold(_ => false, _ => true))
-        } yield result
+            table.put(Process(id, config.processorId, now, None, Some(now.plus(config.ttl.toJava))))
+          )
+
+          process <- result.sequence
+            .leftMap(e => new Exception("Error reading old item: ${e.show}"))
+            .fold(_.raiseError[F, Option[Process[ID, ProcessorID]]], _.pure[F])
+
+        } yield process.flatMap(_.expiresOn).fold(true)(_.isBefore(now))
       }
 
       override def processed(id: ID): F[Unit] = {
-        scanamoF(table.put(Process(id, config.processorId, Status.processed, None))).void
+        for {
+          now <- timer.clock
+            .realTime(TimeUnit.MILLISECONDS)
+            .map(Instant.ofEpochMilli)
+          result <- scanamoF(
+            table.update(
+              ('id -> id and 'processorId -> config.processorId),
+              set('completedAt -> Some(now))))
+        } yield ()
       }
 
       override def protect[A](id: ID, ifNotProcessed: F[A], ifProcessed: F[A]): F[A] = {

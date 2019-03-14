@@ -65,7 +65,7 @@ class ProcessingStoreSpec
   }
 
   val processingStoreResource: Resource[IO, ProcessingStore[IO, String]] = for {
-    table <- tableResource[IO]('id -> S)
+    table <- tableResource[IO]('id -> S, 'processorId -> S)
     dbClient <- dynamoDbClientResource[IO]()
   } yield
     ProcessingStore[IO, String, String](

@@ -1,7 +1,10 @@
 
+lazy val IT = config("it") extend Test
 
 lazy val deduplication = (project in file("."))
   .enablePlugins(BuildInfoPlugin)
+  .configs(IT)
+  .settings(inConfig(IT)(Defaults.testSettings))
   .settings(
     inThisBuild(List(
       organization := "com.ovoenergy.comms",

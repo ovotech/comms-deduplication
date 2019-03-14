@@ -1,7 +1,6 @@
 package com.ovoenergy.comms.deduplication
 
 import java.time.Instant
-import scala.compat.java8.DurationConverters._
 
 import scala.concurrent.duration._
 
@@ -31,15 +30,10 @@ object model {
         .getOrElse(throw new IllegalArgumentException(s"$s is not a valid Status"))
   }
 
-  case class Expiration(instant: Instant) {
-
-    def plus(d: FiniteDuration): Expiration =
-      copy(instant.plus(d.toJava))
-  }
-
   case class Process[ID, ProcessorID](
       id: ID,
       processorId: ProcessorID,
-      status: Status,
-      expiredOn: Option[Expiration])
+      startedAt: Instant,
+      completedAt: Option[Instant],
+      expiresOn: Option[Instant])
 }

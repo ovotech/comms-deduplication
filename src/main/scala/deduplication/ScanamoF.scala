@@ -1,11 +1,13 @@
-package deduplication
-
-import cats.effect.Async
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsync
-import com.gu.scanamo.ScanamoAsync
-import com.gu.scanamo.ops.ScanamoOps
+package com.ovoenergy.comms.deduplication
 
 import scala.concurrent.ExecutionContext
+
+import cats.effect.Async
+
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsync
+
+import com.gu.scanamo.ScanamoAsync
+import com.gu.scanamo.ops.ScanamoOps
 
 class ScanamoF[F[_]] {
 

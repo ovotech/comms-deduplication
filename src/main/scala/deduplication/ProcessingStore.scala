@@ -10,10 +10,12 @@ import cats.effect._
 import cats.implicits._
 
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsyncClientBuilder}
+import com.amazonaws.services.dynamodbv2.model.AttributeValue
 
 import com.gu.scanamo._
 import com.gu.scanamo.ops.ScanamoOps
 import com.gu.scanamo.syntax._
+import com.gu.scanamo.error._
 
 import model._
 
@@ -28,13 +30,25 @@ trait ProcessingStore[F[_], ID] {
 
 object ProcessingStore {
 
-  private implicit val statusDynamoFormat: DynamoFormat[Status] =
-    DynamoFormat.coercedXmap[Status, String, IllegalArgumentException](Status.unsafeFromString)(
-      _.toString)
+  private implicit def optionFormat[T](implicit f: DynamoFormat[T]) = new DynamoFormat[Option[T]] {
+    def read(av: AttributeValue): Either[DynamoReadError, Option[T]] =
+      Option(av)
+        .filter(x => !Boolean.unbox(x.isNULL))
+        .map(f.read(_).map(Some(_)))
+        .getOrElse(Right(Option.empty[T]))
+
+    def write(t: Option[T]): AttributeValue =
+      t.map(f.write).getOrElse(new AttributeValue().withNULL(true))
+    override val default = Some(None)
+  }
 
   private implicit val instantDynamoFormat: DynamoFormat[Instant] =
-    DynamoFormat.coercedXmap[Instant, Long, IllegalArgumentException](x => Instant.ofEpochMilli(x))(
+    DynamoFormat.coercedXmap[Instant, Long, IllegalArgumentException](Instant.ofEpochMilli)(
       _.toEpochMilli)
+
+  private implicit val expirationDynamoFormat: DynamoFormat[Expiration] =
+    DynamoFormat.coercedXmap[Expiration, Long, IllegalArgumentException](x =>
+      Expiration(Instant.ofEpochSecond(x)))(_.instant.getEpochSecond)
 
   def resource[F[_]: Async, ID, ProcessorID](config: Config[ProcessorID])(
       implicit idDf: DynamoFormat[ID],
@@ -72,14 +86,28 @@ object ProcessingStore {
             .map(Instant.ofEpochMilli)
 
           result <- scanamoF(
-            table.put(Process(id, config.processorId, now, None, Some(now.plus(config.ttl.toJava))))
+            table.put(
+              Process(
+                id,
+                config.processorId,
+                now,
+                None,
+                Some(Expiration(now.plus(config.ttl.toJava)))))
           )
 
-          process <- result.sequence
+          processOpt <- result.sequence
             .leftMap(e => new Exception("Error reading old item: ${e.show}"))
             .fold(_.raiseError[F, Option[Process[ID, ProcessorID]]], _.pure[F])
 
-        } yield process.flatMap(_.expiresOn).fold(true)(_.isBefore(now))
+        } yield {
+          // Returns true if:
+          // - the process does not exist
+          // - the process exist but it is completed
+          // - the process exist, is not completed but it is expired
+          processOpt.fold(true) { process =>
+            process.completedAt.isEmpty && process.expiresOn.fold(true)(_.instant.isBefore(now))
+          }
+        }
       }
 
       override def processed(id: ID): F[Unit] = {
@@ -90,7 +118,7 @@ object ProcessingStore {
           result <- scanamoF(
             table.update(
               ('id -> id and 'processorId -> config.processorId),
-              set('completedAt -> Some(now))))
+              set('completedAt -> Some(now)) and set('expiresOn -> none[Expiration])))
         } yield ()
       }
 

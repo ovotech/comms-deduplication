@@ -29,7 +29,7 @@ class ProcessingStoreSpec
 
   it should "process event for the first time, ignore after that" in {
 
-    val id = "test"
+    val id = "test-1"
 
     val result = processingStoreResource
       .use { ps =>
@@ -43,6 +43,43 @@ class ProcessingStoreSpec
     val (a, b) = result
     a shouldBe "nonProcessed"
     b shouldBe "processed"
+  }
+
+  it should "process event for the first time, ignore other before expiration" in {
+
+    val id = "test-1"
+
+    val result = processingStoreResource
+      .use { ps =>
+        for {
+          a <- ps.processing(id).ifM(IO("nonProcessed"), IO("processed"))
+          b <- ps.processing(id).ifM(IO("nonProcessed"), IO("processed"))
+        } yield (a, b)
+      }
+      .unsafeRunSync()
+
+    val (a, b) = result
+    a shouldBe "nonProcessed"
+    b shouldBe "processed"
+  }
+
+  it should "process event for the first time, accept other after expiration" in {
+
+    val id = "test-1"
+
+    val result = processingStoreResource
+      .use { ps =>
+        for {
+          a <- ps.processing(id).ifM(IO("nonProcessed"), IO("processed"))
+          _ <- IO.sleep(3.seconds)
+          b <- ps.processing(id).ifM(IO("nonProcessed"), IO("processed"))
+        } yield (a, b)
+      }
+      .unsafeRunSync()
+
+    val (a, b) = result
+    a shouldBe "nonProcessed"
+    b shouldBe "nonProcessed"
   }
 
   it should "always process event for the first time" in {

@@ -79,10 +79,6 @@ jobs:
 
     executor: machine
 
-    environment:
-      JAVA_OPTS: "-XX:+CMSClassUnloadingEnabled -XX:MaxMetaspaceSize=512M -XX:MetaspaceSize=512M -Xms1G -Xmx1G -XX:+PrintGCDetails -XX:+PrintGCTimeStamps -Xloggc:target/gc.log"
-      TEST_TIME_FACTOR: 5.0
-
     steps:
 
     - checkout
@@ -101,6 +97,26 @@ jobs:
 
     - store_artifacts:
         path: target/gc.log
+
+  integration_test:
+
+    executor: docker
+
+    steps:
+
+    - checkout
+
+    - attach_workspace:
+        at: .
+
+    - *restore_dependencies_cache
+
+    - run:
+        name: Test
+        command: sbt it:test
+
+    - store_test_results:
+        path: target/test-reports
 
   publish:
 
@@ -131,10 +147,14 @@ workflows:
     - test:
         requires:
         - build
+    - integration_test:
+        requires:
+        - build
     - publish:
         requires:
         - build
         - test
+        - integration_test
         filters:
           branches:
             only:

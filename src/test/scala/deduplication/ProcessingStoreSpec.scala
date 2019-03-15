@@ -2,6 +2,7 @@ package com.ovoenergy.comms.deduplication
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
+import java.util.UUID
 
 import cats.effect._
 import cats.implicits._
@@ -29,7 +30,7 @@ class ProcessingStoreSpec
 
   it should "process event for the first time, ignore after that" in {
 
-    val id = "test-1"
+    val id = UUID.randomUUID().toString
 
     val result = processingStoreResource
       .use { ps =>
@@ -47,7 +48,7 @@ class ProcessingStoreSpec
 
   it should "process event for the first time, ignore other before expiration" in {
 
-    val id = "test-1"
+    val id = UUID.randomUUID().toString
 
     val result = processingStoreResource
       .use { ps =>
@@ -65,7 +66,7 @@ class ProcessingStoreSpec
 
   it should "process event for the first time, accept other after expiration" in {
 
-    val id = "test-1"
+    val id = UUID.randomUUID().toString
 
     val result = processingStoreResource
       .use { ps =>
@@ -84,8 +85,8 @@ class ProcessingStoreSpec
 
   it should "always process event for the first time" in {
 
-    val id1 = "test-1"
-    val id2 = "test-2"
+    val id1 = UUID.randomUUID().toString
+    val id2 = UUID.randomUUID().toString
 
     val result = processingStoreResource
       .use { ps =>
@@ -102,13 +103,14 @@ class ProcessingStoreSpec
   }
 
   val processingStoreResource: Resource[IO, ProcessingStore[IO, String]] = for {
+    processorId <- Resource.liftF(IO(UUID.randomUUID().toString))
     table <- tableResource[IO]('id -> S, 'processorId -> S)
     dbClient <- dynamoDbClientResource[IO]()
   } yield
     ProcessingStore[IO, String, String](
       Config(
         Config.TableName(table.value),
-        "tester",
+        processorId,
         1.second
       ),
       dbClient

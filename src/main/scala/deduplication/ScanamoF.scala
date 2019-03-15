@@ -6,7 +6,7 @@ import cats.effect.Async
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsync
 
-import com.gu.scanamo.ScanamoAsync
+import com.gu.scanamo._
 import com.gu.scanamo.ops.ScanamoOps
 
 class ScanamoF[F[_]] {

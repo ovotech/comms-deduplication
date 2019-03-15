@@ -5,12 +5,14 @@ import java.util.concurrent.TimeUnit
 
 import scala.concurrent.ExecutionContext
 import scala.compat.java8.DurationConverters._
+import scala.collection.JavaConverters._
 
 import cats.effect._
 import cats.implicits._
 
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsyncClientBuilder}
-import com.amazonaws.services.dynamodbv2.model.AttributeValue
+import com.amazonaws.services.dynamodbv2.model._
+import com.amazonaws.handlers._
 
 import com.gu.scanamo._
 import com.gu.scanamo.ops.ScanamoOps
@@ -72,7 +74,59 @@ object ProcessingStore {
       ec: ExecutionContext
   ): ProcessingStore[F, ID] = {
 
+    implicit val processDf = DynamoFormat[Process[ID, ProcessorID]]
+
     def scanamoF[A]: ScanamoOps[A] => F[A] = new ScanamoF[F].exec[A](client)
+
+    // Unfurtunately Scanamo does not support update of non existing record
+    def startProcessingUpdate(
+        id: ID,
+        processorId: ProcessorID,
+        now: Instant): F[Option[Process[ID, ProcessorID]]] = {
+      idDf.write(id)
+      processorIdDf.write(processorId)
+
+      val request = new UpdateItemRequest()
+        .withTableName(config.tableName.value)
+        .withKey(
+          Map("id" -> idDf.write(id), "processorId" -> processorIdDf.write(processorId)).asJava)
+        .withUpdateExpression("SET startedAt=:startedAt, expiresOn=:expiresOn")
+        .withExpressionAttributeValues(
+          Map(
+            ":startedAt" -> instantDynamoFormat.write(now),
+            ":expiresOn" -> expirationDynamoFormat.write(Expiration(now.plus(config.ttl.toJava)))
+          ).asJava)
+        .withReturnValues(ReturnValue.ALL_OLD)
+
+      val result = Async[F].async[UpdateItemResult] { cb =>
+        client.updateItemAsync(
+          request,
+          new AsyncHandler[UpdateItemRequest, UpdateItemResult] {
+            def onError(exception: Exception) = {
+              cb(Left(exception))
+            }
+
+            def onSuccess(req: UpdateItemRequest, res: UpdateItemResult) = {
+              cb(Right(res))
+            }
+          }
+        )
+
+        ()
+      }
+
+      result.map { res =>
+        Option(res.getAttributes)
+          .filter(_.size > 0)
+          .map(xs => new AttributeValue().withM(xs))
+          .map { atts =>
+            processDf
+              .read(atts)
+              .leftMap(e => new Exception("Error reading old item: ${e.show}"): Throwable)
+          }
+          .sequence
+      }.rethrow
+    }
 
     new ProcessingStore[F, ID] {
 
@@ -85,19 +139,7 @@ object ProcessingStore {
             .realTime(TimeUnit.MILLISECONDS)
             .map(Instant.ofEpochMilli)
 
-          result <- scanamoF(
-            table.put(
-              Process(
-                id,
-                config.processorId,
-                now,
-                None,
-                Some(Expiration(now.plus(config.ttl.toJava)))))
-          )
-
-          processOpt <- result.sequence
-            .leftMap(e => new Exception("Error reading old item: ${e.show}"))
-            .fold(_.raiseError[F, Option[Process[ID, ProcessorID]]], _.pure[F])
+          processOpt <- startProcessingUpdate(id, config.processorId, now)
 
         } yield {
           // Returns true if:

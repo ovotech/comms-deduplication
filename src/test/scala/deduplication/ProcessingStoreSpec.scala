@@ -111,7 +111,8 @@ class ProcessingStoreSpec
       Config(
         Config.TableName(table.value),
         processorId,
-        1.second
+        1.second,
+        30.days,
       ),
       dbClient
     )

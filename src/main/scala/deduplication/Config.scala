@@ -4,7 +4,12 @@ import scala.concurrent.duration._
 
 import Config.TableName
 
-case class Config[ProcessorID](tableName: TableName, processorId: ProcessorID, ttl: FiniteDuration)
+case class Config[ProcessorID](
+    tableName: TableName,
+    processorId: ProcessorID,
+    maxProcessingTime: FiniteDuration,
+    ttl: FiniteDuration
+)
 
 object Config {
 

@@ -42,7 +42,8 @@ class ProcessingStoreSpec
     processingStore <- ProcessingStore.resource[IO, String, String](Config(
       tableName = Config.TableName(table),
       processorId = processorId, 
-      ttl = 5.seconds)
+      maxProcessingTime = 5.seconds,
+      ttl = 1.day)
     )
   } yield processingStore
 }

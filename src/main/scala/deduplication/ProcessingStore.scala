@@ -89,13 +89,12 @@ object ProcessingStore {
       val request = new UpdateItemRequest()
         .withTableName(config.tableName.value)
         .withKey(
-          Map("id" -> idDf.write(id), "processorId" -> processorIdDf.write(processorId)).asJava)
-        .withUpdateExpression("SET startedAt=:startedAt, expiresOn=:expiresOn")
-        .withExpressionAttributeValues(
-          Map(
-            ":startedAt" -> instantDynamoFormat.write(now),
-            ":expiresOn" -> expirationDynamoFormat.write(Expiration(now.plus(config.ttl.toJava)))
-          ).asJava)
+          Map("id" -> idDf.write(id), "processorId" -> processorIdDf.write(processorId)).asJava
+        )
+        .withUpdateExpression("SET startedAt=:startedAt")
+        .withExpressionAttributeValues(Map(
+          ":startedAt" -> instantDynamoFormat.write(now)
+        ).asJava)
         .withReturnValues(ReturnValue.ALL_OLD)
 
       val result = Async[F].async[UpdateItemResult] { cb =>
@@ -144,10 +143,13 @@ object ProcessingStore {
         } yield {
           // Returns true if:
           // - the process does not exist
-          // - the process exist but it is completed
-          // - the process exist, is not completed but it is expired
+          // - the process exists, it is not completed and it has not been proccessed in time
           processOpt.fold(true) { process =>
-            process.completedAt.isEmpty && process.expiresOn.fold(true)(_.instant.isBefore(now))
+            val isNotCompleted = process.completedAt.isEmpty
+            val maxProcessingTimeExceded =
+              process.startedAt.plus(config.maxProcessingTime.toJava).isBefore(now)
+
+            isNotCompleted && maxProcessingTimeExceded
           }
         }
       }
@@ -160,7 +162,10 @@ object ProcessingStore {
           result <- scanamoF(
             table.update(
               ('id -> id and 'processorId -> config.processorId),
-              set('completedAt -> Some(now)) and set('expiresOn -> none[Expiration])))
+              set('completedAt -> Some(now)) and set(
+                'expiresOn -> Expiration(now.plus(config.ttl.toJava)))
+            )
+          )
         } yield ()
       }
 

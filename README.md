@@ -32,10 +32,10 @@ If the record with given `id` and `processorId` was already present, its value i
 
 We can have these scenarios:
 
-1) The sygnal has never been processed previously (not previous record found)
-2) The sygnal has been already processed previously (`completedAt` is present)
-3) The sygnal has started been processing (`completedAt` is absent and `expiresOn` is in the future)
-4) The sygnal has been attempted to be processed previously (`completedAt` is absent and `expiresOn` is in the past)
+1) The signal has never been processed previously (not previous record found)
+2) The signal has been already processed previously (`completedAt` is present)
+3) The signal has started been processing (`completedAt` is absent and `expiresOn` is in the future)
+4) The signal has been attempted to be processed previously (`completedAt` is absent and `expiresOn` is in the past)
 
 In cases (1) and (4) the library allow the sygnal to be processed. In cases (2) and (3) the library does not allow the sygnal to be process again.
 

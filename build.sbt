@@ -82,7 +82,7 @@ lazy val deduplication = (project in file("."))
     releaseEarlyNoGpg := true,
 
     libraryDependencies ++=
-      dep("org.typelevel")("1.6.1")(
+      dep("org.typelevel")("2.0.0")(
         "cats-core"
       ) ++
       dep("org.typelevel")("1.4.0")(

@@ -103,7 +103,7 @@ lazy val deduplication = (project in file("."))
       ).map(_ % Test) ++
       Seq(
         "org.scalatest" %% "scalatest" % "3.0.8",
-        "org.scalacheck" %% "scalacheck" % "1.14.0",
+        "org.scalacheck" %% "scalacheck" % "1.14.1",
         "ch.qos.logback" % "logback-classic" % "1.2.3",
       ).map(_ % Test) ++
       dep("com.ovoenergy")("1.8.11")(

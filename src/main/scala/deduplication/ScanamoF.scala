@@ -11,8 +11,9 @@ import com.gu.scanamo.ops.ScanamoOps
 
 class ScanamoF[F[_]] {
 
-  def exec[A](dynamoDb: AmazonDynamoDBAsync)(
-      ops: ScanamoOps[A])(implicit ec: ExecutionContext, F: Async[F]): F[A] = {
+  def exec[A](
+      dynamoDb: AmazonDynamoDBAsync
+  )(ops: ScanamoOps[A])(implicit ec: ExecutionContext, F: Async[F]): F[A] = {
     F.async[A] { cb =>
       ScanamoAsync.exec[A](dynamoDb)(ops).onComplete(result => cb(result.toEither))
     }

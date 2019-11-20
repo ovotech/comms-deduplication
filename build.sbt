@@ -10,7 +10,7 @@ lazy val deduplication = (project in file("."))
       organization := "com.ovoenergy.comms",
       organizationHomepage := Some(url("http://www.ovoenergy.com")),
       licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
-      scalaVersion := "2.12.8",
+      scalaVersion := "2.12.10",
 
       scmInfo := Some(ScmInfo(
         url("https://github.com/ovotech/comms-deduplication"),
@@ -95,15 +95,15 @@ lazy val deduplication = (project in file("."))
         "scanamo",
         "scanamo-formats"
       ) ++
-      udep("org.slf4j")("1.7.28")(
+      udep("org.slf4j")("1.7.29")(
         "slf4j-api"
       ) ++
-      udep("org.slf4j")("1.7.28")(
+      udep("org.slf4j")("1.7.29")(
         "jcl-over-slf4j"
       ).map(_ % Test) ++
       Seq(
         "org.scalatest" %% "scalatest" % "3.0.8",
-        "org.scalacheck" %% "scalacheck" % "1.14.1",
+        "org.scalacheck" %% "scalacheck" % "1.14.2",
         "ch.qos.logback" % "logback-classic" % "1.2.3",
       ).map(_ % Test) ++
       dep("com.ovoenergy")("1.8.11")(

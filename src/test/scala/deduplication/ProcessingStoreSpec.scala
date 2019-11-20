@@ -106,14 +106,13 @@ class ProcessingStoreSpec
     processorId <- Resource.liftF(IO(UUID.randomUUID().toString))
     table <- tableResource[IO]('id -> S, 'processorId -> S)
     dbClient <- dynamoDbClientResource[IO]()
-  } yield
-    ProcessingStore[IO, String, String](
-      Config(
-        Config.TableName(table.value),
-        processorId,
-        1.second,
-        30.days,
-      ),
-      dbClient
-    )
+  } yield ProcessingStore[IO, String, String](
+    Config(
+      Config.TableName(table.value),
+      processorId,
+      1.second,
+      30.days
+    ),
+    dbClient
+  )
 }

@@ -38,6 +38,8 @@ pull_request_rules:
         add:
           - ovo-scala-steward
           - minor-update
+        remove:
+          - failed-update
       delete_head_branch: {}
 
   - name: automatically merge ovo-scala-steward's patch version PRs
@@ -58,4 +60,6 @@ pull_request_rules:
         add:
           - ovo-scala-steward
           - patch-update
+        remove:
+          - failed-update
       delete_head_branch: {}

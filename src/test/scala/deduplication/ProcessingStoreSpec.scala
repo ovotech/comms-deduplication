@@ -13,10 +13,11 @@ import com.ovoenergy.comms.dockertestkit.dynamoDb.DynamoDbClient
 import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType._
 
 import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
-import org.scalatest.{FlatSpec, Matchers}
+import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.matchers.should.Matchers
 
 class ProcessingStoreSpec
-    extends FlatSpec
+    extends AnyFlatSpec
     with Matchers
     with ScalaCheckDrivenPropertyChecks
     with DynamoDbClient

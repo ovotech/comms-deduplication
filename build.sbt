@@ -95,10 +95,10 @@ lazy val deduplication = (project in file("."))
         "scanamo",
         "scanamo-formats"
       ) ++
-      udep("org.slf4j")("1.7.28")(
+      udep("org.slf4j")("1.7.29")(
         "slf4j-api"
       ) ++
-      udep("org.slf4j")("1.7.28")(
+      udep("org.slf4j")("1.7.29")(
         "jcl-over-slf4j"
       ).map(_ % Test) ++
       Seq(

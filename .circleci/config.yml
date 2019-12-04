@@ -57,25 +57,6 @@ executors:
       DEFAULT_AWS_REGION: "eu-west-1"
       AWS_REGION: "eu-west-1"
 
-
-executors:
-  docker:
-    docker:
-    - image: circleci/openjdk:8-jdk
-    environment:
-      JAVA_OPTS: "-Xmx1g -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
-      AWS_REGION: "eu-west-1"
-      AWS_DEFAULT_REGION: "eu-west-1"
-      TEST_TIME_SCALE_FACTOR: 3
-  machine:
-    machine:
-      enabled: true
-    environment:
-      JAVA_OPTS: "-Xmx1g -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
-      AWS_REGION: "eu-west-1"
-      AWS_DEFAULT_REGION: "eu-west-1"
-      TEST_TIME_SCALE_FACTOR: 3
-
 jobs:
   build:
 

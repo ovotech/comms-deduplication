@@ -39,7 +39,7 @@ commands:
           git config user.email "hello.comms@ovoenergy.com"
 
 executors:
-  docker-executor:
+  docker:
     docker:
     - image: circleci/openjdk:8-jdk
     environment:
@@ -47,7 +47,7 @@ executors:
       DEFAULT_AWS_REGION: "eu-west-1"
       AWS_REGION: "eu-west-1"
 
-  machine-executor:
+  machine:
     machine:
       enabled: true
       image: circleci/classic:edge

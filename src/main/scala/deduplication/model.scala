@@ -27,7 +27,7 @@ object model {
       expiresOn: Option[Expiration]
   )
 
-  sealed trait PollStrategy {
+  trait PollStrategy {
     def maxPollDuration: FiniteDuration
     def initialDelay: FiniteDuration
     def nextDelay(pollNo: Int, previousDelay: FiniteDuration): FiniteDuration

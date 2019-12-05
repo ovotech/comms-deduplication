@@ -2,8 +2,10 @@ package com.ovoenergy.comms.deduplication
 
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.FiniteDuration
 import scala.compat.java8.DurationConverters._
 import scala.collection.JavaConverters._
 
@@ -21,27 +23,25 @@ import com.gu.scanamo.syntax._
 import com.gu.scanamo.error._
 
 import model._
-import scala.concurrent.duration.FiniteDuration
 
 trait ProcessingStore[F[_], ID] {
 
   /**
     * Try to acquire a lock on a process
     *
-    * If a process is at least started, returns a [[ProcessStatus]] instance:
+    * Returns a [[ProcessStatus]] instance:
+    *  - [[ProcessStatus.NotStarted]] if the process has not been started yet
     *  - [[ProcessStatus.Started]] if the process has been started but not completed
     *  - [[ProcessStatus.Completed]] if the process has been completed
-    *  - [[ProcessStatus.Expired]] if the process has started bu has been completed in time
-    *
-    * Otherwise it does return [[None]].
+    *  - [[ProcessStatus.Expired]] if the process has started but has not been completed in time
     */
-  def processing(id: ID): F[Option[ProcessStatus]]
+  def processing(id: ID): F[ProcessStatus]
 
   def processed(id: ID): F[Unit]
 
   def protect[A](id: ID, ifNotProcessed: F[A], ifProcessed: F[A]): F[A]
 
-  def protect[A](id: ID): Resource[F, Option[ProcessStatus]]
+  def protect[A](id: ID): Resource[F, ProcessStatus]
 }
 
 object ProcessingStore {
@@ -178,13 +178,15 @@ object ProcessingStore {
       private val table: Table[Process[ID, ProcessorID]] =
         Table[Process[ID, ProcessorID]](config.tableName.value)
 
-      override def processing(id: ID): F[Option[ProcessStatus]] = {
+      override def processing(id: ID): F[ProcessStatus] = {
         for {
           now <- timer.clock
             .realTime(TimeUnit.MILLISECONDS)
             .map(Instant.ofEpochMilli)
           processOpt <- startProcessingUpdate(id, config.processorId, now)
-          status <- processOpt.traverse(processStatus[F](config.maxProcessingTime))
+          status <- processOpt
+            .traverse(processStatus[F](config.maxProcessingTime))
+            .map(_.getOrElse(ProcessStatus.NotStarted))
         } yield status
       }
 
@@ -204,7 +206,7 @@ object ProcessingStore {
         } yield ()
       }
 
-      private def acquire(id: ID): F[Option[ProcessStatus]] = {
+      private def acquire(id: ID): F[ProcessStatus] = {
 
         val nowF = Clock[F].monotonic(TimeUnit.MILLISECONDS)
         val pollStrategy = config.pollStrategy
@@ -213,11 +215,9 @@ object ProcessingStore {
             startedAt: Long,
             pollNo: Int,
             pollDelay: FiniteDuration
-        ): F[Option[ProcessStatus]] = {
+        ): F[ProcessStatus] = {
           processing(id).flatMap {
-            case None =>
-              Sync[F].point(None)
-            case Some(ProcessStatus.Started) =>
+            case ProcessStatus.Started =>
               val totalDurationF =
                 nowF.map(_ - startedAt).map(FiniteDuration(_, TimeUnit.MILLISECONDS))
 
@@ -225,15 +225,15 @@ object ProcessingStore {
               totalDurationF
                 .map(_ >= pollStrategy.maxPollDuration)
                 .ifM(
-                  Sync[F].raiseError(new RuntimeException("Stop polling after ${} polls")),
+                  Sync[F].raiseError(new TimeoutException("Stop polling after ${} polls")),
                   Timer[F].sleep(pollDelay) >> doIt(
                     startedAt,
                     pollNo + 1,
                     config.pollStrategy.nextDelay(pollNo, pollDelay)
                   )
                 )
-            case Some(status) =>
-              Sync[F].point(status.some)
+            case status =>
+              Sync[F].point(status)
           }
         }
 
@@ -242,9 +242,9 @@ object ProcessingStore {
 
       override def protect[A](id: ID, ifNotProcessed: F[A], ifProcessed: F[A]): F[A] = {
         protect(id).use {
-          case None => ifNotProcessed
-          case Some(ProcessStatus.Expired) | Some(ProcessStatus.Completed) => ifProcessed
-          case Some(ProcessStatus.Started) =>
+          case ProcessStatus.NotStarted => ifNotProcessed
+          case ProcessStatus.Expired | ProcessStatus.Completed => ifProcessed
+          case ProcessStatus.Started =>
             Sync[F].raiseError(
               new IllegalStateException(
                 "If the status is just started this point should never be reached"
@@ -253,7 +253,7 @@ object ProcessingStore {
         }
       }
 
-      override def protect[A](id: ID): Resource[F, Option[ProcessStatus]] =
+      override def protect[A](id: ID): Resource[F, ProcessStatus] =
         Resource.make(acquire(id))(_ => processed(id))
     }
   }

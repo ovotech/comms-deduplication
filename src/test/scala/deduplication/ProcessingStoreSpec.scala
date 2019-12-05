@@ -15,6 +15,7 @@ import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType._
 import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
 import org.scalatest.{FlatSpec, Matchers}
 
+import model._
 class ProcessingStoreSpec
     extends FlatSpec
     with Matchers
@@ -53,8 +54,14 @@ class ProcessingStoreSpec
     val result = processingStoreResource
       .use { ps =>
         for {
-          a <- ps.processing(id).ifM(IO("nonProcessed"), IO("processed"))
-          b <- ps.processing(id).ifM(IO("nonProcessed"), IO("processed"))
+          a <- ps.processing(id).map {
+            case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
+            case _ => "processed"
+          }
+          b <- ps.processing(id).map {
+            case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
+            case _ => "processed"
+          }
         } yield (a, b)
       }
       .unsafeRunSync()
@@ -71,9 +78,15 @@ class ProcessingStoreSpec
     val result = processingStoreResource
       .use { ps =>
         for {
-          a <- ps.processing(id).ifM(IO("nonProcessed"), IO("processed"))
+          a <- ps.processing(id).map {
+            case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
+            case _ => "processed"
+          }
           _ <- IO.sleep(3.seconds)
-          b <- ps.processing(id).ifM(IO("nonProcessed"), IO("processed"))
+          b <- ps.processing(id).map {
+            case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
+            case _ => "processed"
+          }
         } yield (a, b)
       }
       .unsafeRunSync()
@@ -111,7 +124,8 @@ class ProcessingStoreSpec
       Config.TableName(table.value),
       processorId,
       1.second,
-      30.days
+      30.days,
+      PollStrategy.linear()
     ),
     dbClient
   )

@@ -127,8 +127,6 @@ object ProcessingStore {
         processorId: ProcessorID,
         now: Instant
     ): F[Option[Process[ID, ProcessorID]]] = {
-      idDf.write(id)
-      processorIdDf.write(processorId)
 
       val request = new UpdateItemRequest()
         .withTableName(config.tableName.value)

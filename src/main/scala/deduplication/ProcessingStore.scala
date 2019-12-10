@@ -223,7 +223,7 @@ object ProcessingStore {
               totalDurationF
                 .map(_ >= pollStrategy.maxPollDuration)
                 .ifM(
-                  Sync[F].raiseError(new TimeoutException("Stop polling after ${} polls")),
+                  Sync[F].raiseError(new TimeoutException(s"Stop polling after ${pollNo} polls")),
                   Timer[F].sleep(pollDelay) >> doIt(
                     startedAt,
                     pollNo + 1,

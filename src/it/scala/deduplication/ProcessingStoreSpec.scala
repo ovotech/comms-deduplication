@@ -46,7 +46,7 @@ class ProcessingStoreSpec
       processorId = processorId, 
       maxProcessingTime = 5.seconds,
       ttl = 1.day,
-      pollStrategy = PollStrategy.linear()
+      pollStrategy = PollStrategy.backoff(maxDuration = 30.seconds)
     ))
   } yield processingStore
 }

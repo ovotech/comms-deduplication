@@ -10,7 +10,7 @@ lazy val deduplication = (project in file("."))
       organization := "com.ovoenergy.comms",
       organizationHomepage := Some(url("http://www.ovoenergy.com")),
       licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
-      scalaVersion := "2.12.8",
+      scalaVersion := "2.12.10",
 
       scmInfo := Some(ScmInfo(
         url("https://github.com/ovotech/comms-deduplication"),

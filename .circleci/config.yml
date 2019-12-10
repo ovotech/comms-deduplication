@@ -1,47 +1,61 @@
 version: 2.1
 
-defaults:
-- &save_dependencies_cache
-  save_cache:
-    paths:
-    - ~/.ivy2
-    - ~/.sbt
-    key: dependencies-{{ .Branch }}-{{ checksum "build.sbt" }}
-- &restore_dependencies_cache
-  restore_cache:
-    keys:
-    - dependencies-{{ .Branch }}-{{ checksum "build.sbt" }}
-    - dependencies-{{ .Branch }}
-    - dependencies
+commands:
 
-- &configure_git_credetials
-  run:
-    name: Configure git credentials
-    command: |
-      echo 'Adding the github host SSH key...'
-      mkdir -p -m 0700 ~/.ssh/
-      ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
-      git config user.name ovo-comms-circleci
-      git config user.email "hello.comms@ovoenergy.com"
+  store_sbt_cache:
+    description: "Restore sbt cache"
+    steps:
+    - save_cache:
+        key: dependencies-{{ .Branch }}-{{ checksum "build.sbt" }}
+        paths:
+        - /home/circleci/.ivy2
+        - /home/circleci/.sbt
 
+  restore_sbt_cache:
+    description: "Restore sbt cache"
+    steps:
+    - restore_cache:
+        keys:
+        - dependencies-{{ .Branch }}-{{ checksum "build.sbt" }}
+        - dependencies-{{ .Branch }}
+        - dependencies
+
+  add_github_host_ssh_key:
+    description: "Add the github host SSH key"
+    steps:
+    - run:
+        name: Adding the github host SSH key
+        command: |
+          echo 'Adding the github host SSH key...'
+          mkdir -p -m 0700 ~/.ssh/
+          ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+  configure_git_credentials:
+    description: "Configure git credentials"
+    steps:
+    - run:
+        name: Configure git credentials
+        command: |
+          git config user.name ovo-comms-circleci
+          git config user.email "hello.comms@ovoenergy.com"
 
 executors:
   docker:
     docker:
     - image: circleci/openjdk:8-jdk
     environment:
-      JAVA_OPTS: "-Xmx1g -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
+      JAVA_OPTS: "-Xmx1g -Xss2m -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
+      DEFAULT_AWS_REGION: "eu-west-1"
       AWS_REGION: "eu-west-1"
-      AWS_DEFAULT_REGION: "eu-west-1"
-      TEST_TIME_SCALE_FACTOR: 3
+
   machine:
     machine:
       enabled: true
+      image: circleci/classic:edge
+
     environment:
-      JAVA_OPTS: "-Xmx1g -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
+      JAVA_OPTS: "-Xmx1g -Xss2m -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
+      DEFAULT_AWS_REGION: "eu-west-1"
       AWS_REGION: "eu-west-1"
-      AWS_DEFAULT_REGION: "eu-west-1"
-      TEST_TIME_SCALE_FACTOR: 3
 
 jobs:
   build:
@@ -52,15 +66,15 @@ jobs:
 
     - checkout
 
-    - *restore_dependencies_cache
+    - restore_sbt_cache
 
     - run: sbt update
 
-    - *save_dependencies_cache
+    - store_sbt_cache
 
     - run:
         name: Scalafmt Check
-        command: sbt scalafmtCheck test:scalafmtCheck
+        command: sbt scalafmtCheckAll
 
     - run:
         name: Compile
@@ -86,7 +100,7 @@ jobs:
     - attach_workspace:
         at: .
 
-    - *restore_dependencies_cache
+    - restore_sbt_cache
 
     - run:
         name: Test
@@ -109,7 +123,7 @@ jobs:
     - attach_workspace:
         at: .
 
-    - *restore_dependencies_cache
+    - restore_sbt_cache
 
     - run:
         name: Test
@@ -128,9 +142,11 @@ jobs:
     - attach_workspace:
         at: .
 
-    - *restore_dependencies_cache
+    - restore_sbt_cache
 
-    - *configure_git_credetials
+    - add_github_host_ssh_key
+
+    - configure_git_credentials
 
     - run:
         name: Tag Release

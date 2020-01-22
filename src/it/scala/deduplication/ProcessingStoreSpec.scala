@@ -10,6 +10,8 @@ import cats.implicits._
 import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
 import org.scalatest.{FlatSpec, Matchers}
 
+import model._
+
 class ProcessingStoreSpec
     extends FlatSpec
     with Matchers
@@ -23,7 +25,7 @@ class ProcessingStoreSpec
   it should "process only one event out of multiple concurrent events" in {
 
     val event = UUID.randomUUID.toString
-    val n = 12000
+    val n = 1200
     val processorId = UUID.randomUUID.toString
 
     val result = processingStoreResource(processorId)
@@ -43,7 +45,8 @@ class ProcessingStoreSpec
       tableName = Config.TableName(table),
       processorId = processorId, 
       maxProcessingTime = 5.seconds,
-      ttl = 1.day)
-    )
+      ttl = 1.day,
+      pollStrategy = PollStrategy.backoff(maxDuration = 30.seconds)
+    ))
   } yield processingStore
 }

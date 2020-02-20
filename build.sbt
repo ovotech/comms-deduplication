@@ -88,7 +88,7 @@ lazy val deduplication = (project in file("."))
       dep("org.typelevel")("2.0.0")(
         "cats-effect"
       ) ++
-      dep("org.scala-lang.modules")("0.9.0")(
+      dep("org.scala-lang.modules")("0.9.1")(
         "scala-java8-compat"
       ) ++
       dep("com.gu")("1.0.0-M8")(

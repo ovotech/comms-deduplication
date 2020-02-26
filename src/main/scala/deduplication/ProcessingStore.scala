@@ -4,23 +4,20 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.FiniteDuration
 import scala.compat.java8.DurationConverters._
 import scala.collection.JavaConverters._
 
 import cats._
-import cats.effect._
 import cats.implicits._
+import cats.effect._
+import cats.effect.implicits._
 
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsyncClientBuilder}
 import com.amazonaws.services.dynamodbv2.model._
 import com.amazonaws.handlers._
 
-import com.gu.scanamo._
-import com.gu.scanamo.ops.ScanamoOps
-import com.gu.scanamo.syntax._
-import com.gu.scanamo.error._
+import org.scanamo._
 
 import model._
 
@@ -73,15 +70,16 @@ object ProcessingStore {
     }
 
   private implicit def optionFormat[T](implicit f: DynamoFormat[T]) = new DynamoFormat[Option[T]] {
-    def read(av: AttributeValue): Either[DynamoReadError, Option[T]] =
+    def read(av: DynamoValue): Either[DynamoReadError, Option[T]] =
+      read(av.toAttributeValue)
+
+    override def read(av: AttributeValue): Either[DynamoReadError, Option[T]] =
       Option(av)
         .filter(x => !Boolean.unbox(x.isNULL))
         .map(f.read(_).map(Some(_)))
         .getOrElse(Right(Option.empty[T]))
 
-    def write(t: Option[T]): AttributeValue =
-      t.map(f.write).getOrElse(new AttributeValue().withNULL(true))
-    override val default = Some(None)
+    def write(t: Option[T]): DynamoValue = t.map(f.write).getOrElse(DynamoValue.nil)
   }
 
   private implicit val instantDynamoFormat: DynamoFormat[Instant] =
@@ -90,19 +88,40 @@ object ProcessingStore {
     )
 
   private implicit val expirationDynamoFormat: DynamoFormat[Expiration] =
-    DynamoFormat.coercedXmap[Expiration, Long, IllegalArgumentException](
-      x => Expiration(Instant.ofEpochSecond(x))
+    DynamoFormat.coercedXmap[Expiration, Long, IllegalArgumentException](x =>
+      Expiration(Instant.ofEpochSecond(x))
     )(_.instant.getEpochSecond)
 
-  def resource[F[_]: Async, ID, ProcessorID](config: Config[ProcessorID])(
-      implicit idDf: DynamoFormat[ID],
-      processorIdDf: DynamoFormat[ProcessorID],
-      timer: Timer[F],
-      ec: ExecutionContext
+  private implicit def processDynamoFormat[ID: DynamoFormat, ProcessorID: DynamoFormat]
+      : DynamoFormat[Process[ID, ProcessorID]] = new DynamoFormat[Process[ID, ProcessorID]] {
+    def read(av: DynamoValue): Either[DynamoReadError, Process[ID, ProcessorID]] =
+      for {
+        obj <- av.asObject
+          .toRight(NoPropertyOfType("object", av))
+          .leftWiden[DynamoReadError]
+        id <- obj.get[ID]("id")
+        processorId <- obj.get[ProcessorID]("processorId")
+        startedAt <- obj.get[Instant]("startedAt")
+        completedAt <- obj.get[Option[Instant]]("completedAt")
+        expiresOn <- obj.get[Option[Expiration]]("completedAt")
+      } yield Process(id, processorId, startedAt, completedAt, expiresOn)
+
+    def write(process: Process[ID, ProcessorID]): DynamoValue =
+      DynamoObject(
+        "id" -> DynamoFormat[ID].write(process.id),
+        "processorId" -> DynamoFormat[ProcessorID].write(process.processorId),
+        "startedAt" -> DynamoFormat[Instant].write(process.startedAt),
+        "completedAt" -> DynamoFormat[Option[Instant]].write(process.completedAt),
+        "expiresOn" -> DynamoFormat[Option[Expiration]].write(process.expiresOn)
+      ).toDynamoValue
+  }
+
+  def resource[F[_]: Async: ContextShift: Timer, ID: DynamoFormat, ProcessorID: DynamoFormat](
+      config: Config[ProcessorID]
   ): Resource[F, ProcessingStore[F, ID]] = {
     val dynamoDbR: Resource[F, AmazonDynamoDBAsync] =
-      Resource.make(Sync[F].delay(AmazonDynamoDBAsyncClientBuilder.defaultClient()))(
-        c => Sync[F].delay(c.shutdown())
+      Resource.make(Sync[F].delay(AmazonDynamoDBAsyncClientBuilder.defaultClient()))(c =>
+        Sync[F].delay(c.shutdown())
       )
 
     dynamoDbR.map { client =>
@@ -110,16 +129,31 @@ object ProcessingStore {
     }
   }
 
-  def apply[F[_]: Async, ID, ProcessorID](config: Config[ProcessorID], client: AmazonDynamoDBAsync)(
-      implicit idDf: DynamoFormat[ID],
-      processorIdDf: DynamoFormat[ProcessorID],
-      timer: Timer[F],
-      ec: ExecutionContext
+  def apply[F[_]: Async: ContextShift: Timer, ID: DynamoFormat, ProcessorID: DynamoFormat](
+      config: Config[ProcessorID],
+      client: AmazonDynamoDBAsync
   ): ProcessingStore[F, ID] = {
 
-    implicit val processDf = DynamoFormat[Process[ID, ProcessorID]]
+    // TODO Shift back
+    def update(request: UpdateItemRequest) =
+      Async[F]
+        .async[UpdateItemResult] { cb =>
+          client.updateItemAsync(
+            request,
+            new AsyncHandler[UpdateItemRequest, UpdateItemResult] {
+              def onError(exception: Exception) = {
+                cb(Left(exception))
+              }
 
-    def scanamoF[A]: ScanamoOps[A] => F[A] = new ScanamoF[F].exec[A](client)
+              def onSuccess(req: UpdateItemRequest, res: UpdateItemResult) = {
+                cb(Right(res))
+              }
+            }
+          )
+
+          ()
+        }
+        .guarantee(ContextShift[F].shift)
 
     // Unfurtunately Scanamo does not support update of non existing record
     def startProcessingUpdate(
@@ -128,57 +162,41 @@ object ProcessingStore {
         now: Instant
     ): F[Option[Process[ID, ProcessorID]]] = {
 
-      val request = new UpdateItemRequest()
-        .withTableName(config.tableName.value)
-        .withKey(
-          Map("id" -> idDf.write(id), "processorId" -> processorIdDf.write(processorId)).asJava
-        )
-        .withUpdateExpression("SET startedAt=:startedAt")
-        .withExpressionAttributeValues(
-          Map(
-            ":startedAt" -> instantDynamoFormat.write(now)
-          ).asJava
-        )
-        .withReturnValues(ReturnValue.ALL_OLD)
-
-      val result = Async[F].async[UpdateItemResult] { cb =>
-        client.updateItemAsync(
-          request,
-          new AsyncHandler[UpdateItemRequest, UpdateItemResult] {
-            def onError(exception: Exception) = {
-              cb(Left(exception))
-            }
-
-            def onSuccess(req: UpdateItemRequest, res: UpdateItemResult) = {
-              cb(Right(res))
-            }
-          }
-        )
-
-        ()
-      }
+      val result = update(
+        new UpdateItemRequest()
+          .withTableName(config.tableName.value)
+          .withKey(
+            Map(
+              "id" -> DynamoFormat[ID].write(id).toAttributeValue,
+              "processorId" -> DynamoFormat[ProcessorID].write(processorId).toAttributeValue
+            ).asJava
+          )
+          .withUpdateExpression("SET startedAt=:startedAt")
+          .withExpressionAttributeValues(
+            Map(
+              ":startedAt" -> instantDynamoFormat.write(now).toAttributeValue
+            ).asJava
+          )
+          .withReturnValues(ReturnValue.ALL_OLD)
+      )
 
       result.map { res =>
         Option(res.getAttributes)
           .filter(_.size > 0)
           .map(xs => new AttributeValue().withM(xs))
-          .map { atts =>
-            processDf
+          .traverse { atts =>
+            DynamoFormat[Process[ID, ProcessorID]]
               .read(atts)
-              .leftMap(e => new Exception("Error reading old item: ${e.show}"): Throwable)
+              .leftMap(e => new Exception(show"Error reading old item: ${e}"))
           }
-          .sequence
       }.rethrow
     }
 
     new ProcessingStore[F, ID] {
 
-      private val table: Table[Process[ID, ProcessorID]] =
-        Table[Process[ID, ProcessorID]](config.tableName.value)
-
       override def processing(id: ID): F[ProcessStatus] = {
         for {
-          now <- timer.clock
+          now <- Timer[F].clock
             .realTime(TimeUnit.MILLISECONDS)
             .map(Instant.ofEpochMilli)
           processOpt <- startProcessingUpdate(id, config.processorId, now)
@@ -190,16 +208,29 @@ object ProcessingStore {
 
       override def processed(id: ID): F[Unit] = {
         for {
-          now <- timer.clock
+          now <- Timer[F].clock
             .realTime(TimeUnit.MILLISECONDS)
             .map(Instant.ofEpochMilli)
-          result <- scanamoF(
-            table.update(
-              ('id -> id and 'processorId -> config.processorId),
-              set('completedAt -> Some(now)) and set(
-                'expiresOn -> Expiration(now.plus(config.ttl.toJava))
+          _ <- update(
+            new UpdateItemRequest()
+              .withTableName(config.tableName.value)
+              .withKey(
+                Map(
+                  "id" -> DynamoFormat[ID].write(id).toAttributeValue,
+                  "processorId" -> DynamoFormat[ProcessorID]
+                    .write(config.processorId)
+                    .toAttributeValue
+                ).asJava
               )
-            )
+              .withUpdateExpression("SET completedAt=:completedAt, expiresOn=:expiresOn")
+              .withExpressionAttributeValues(
+                Map(
+                  ":completedAt" -> instantDynamoFormat.write(now).toAttributeValue,
+                  ":expiresOn" -> new AttributeValue()
+                    .withN(now.plus(config.ttl.toJava).getEpochSecond().toString)
+                ).asJava
+              )
+              .withReturnValues(ReturnValue.NONE)
           )
         } yield ()
       }
@@ -240,8 +271,8 @@ object ProcessingStore {
 
       override def protect[A](id: ID, ifNotProcessed: F[A], ifProcessed: F[A]): F[A] = {
         protect(id).use {
-          case ProcessStatus.NotStarted => ifNotProcessed
-          case ProcessStatus.Expired | ProcessStatus.Completed => ifProcessed
+          case ProcessStatus.NotStarted | ProcessStatus.Expired => ifNotProcessed
+          case ProcessStatus.Completed => ifProcessed
           case ProcessStatus.Started =>
             Sync[F].raiseError(
               new IllegalStateException(
@@ -252,7 +283,16 @@ object ProcessingStore {
       }
 
       override def protect[A](id: ID): Resource[F, ProcessStatus] =
-        Resource.make(acquire(id))(_ => processed(id))
+        Resource.make(acquire(id)) {
+          case ProcessStatus.NotStarted | ProcessStatus.Expired => processed(id)
+          case ProcessStatus.Completed => ().pure[F]
+          case ProcessStatus.Started =>
+            Sync[F].raiseError(
+              new IllegalStateException(
+                "If the status is just started this point should never be reached"
+              )
+            )
+        }
     }
   }
 }

@@ -20,15 +20,15 @@ import com.amazonaws.services.dynamodbv2.model.AttributeValue
 import model._
 
 
-class ProcessingStoreSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenPropertyChecks {
+class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenPropertyChecks {
 
   implicit val ec = ExecutionContext.global
   implicit val contextShift = IO.contextShift(ec)
   implicit val timer: Timer[IO] = IO.timer(ec)
 
-  it should "always process event for the first time" in forAll { (processorId: UUID, id1: UUID, id2: UUID) =>
+  "Deduplication" should "always process event for the first time" in forAll { (processorId: UUID, id1: UUID, id2: UUID) =>
 
-    val result = processingStoreResource(processorId)
+    val result = deduplicationResource(processorId)
       .use { ps =>
         for {
           a <- ps.protect(id1, IO("nonProcessed"), IO("processed"))
@@ -44,7 +44,7 @@ class ProcessingStoreSpec extends AnyFlatSpec with Matchers with ScalaCheckDrive
 
   it should "process event for the first time, ignore after that" in forAll { (processorId: UUID, id: UUID) =>
 
-    val result = processingStoreResource(processorId)
+    val result = deduplicationResource(processorId)
       .use { ps =>
         for {
           a <- ps.protect(id, IO("nonProcessed"), IO("processed"))
@@ -60,7 +60,7 @@ class ProcessingStoreSpec extends AnyFlatSpec with Matchers with ScalaCheckDrive
 
   it should "process event for the first time, ignore other before expiration" in forAll { (processorId: UUID, id: UUID) =>
 
-    val result = processingStoreResource(processorId, 5.seconds)
+    val result = deduplicationResource(processorId, 5.seconds)
       .use { ps =>
         for {
           a <- ps.processing(id).map {
@@ -82,7 +82,7 @@ class ProcessingStoreSpec extends AnyFlatSpec with Matchers with ScalaCheckDrive
 
   it should "process event for the first time, accept other after expiration" in forAll { (processorId: UUID, id: UUID) =>
 
-    val result = processingStoreResource(processorId, 1.seconds)
+    val result = deduplicationResource(processorId, 1.seconds)
       .use { ps =>
         for {
           a <- ps.processing(id).map {
@@ -108,7 +108,7 @@ class ProcessingStoreSpec extends AnyFlatSpec with Matchers with ScalaCheckDrive
     val rs = for {
       tableName <- tableResource
       dynamoDb <- dynamoDbR
-      deduplication <- processingStoreResource(tableName, processorId, 5.seconds)
+      deduplication <- deduplicationResource(tableName, processorId, 5.seconds)
     } yield (tableName, dynamoDb, deduplication)
 
     rs.use {
@@ -120,8 +120,8 @@ class ProcessingStoreSpec extends AnyFlatSpec with Matchers with ScalaCheckDrive
           ) >>
             deduplication.protect(
               id,
-              IO.note(new Exception("Impossible to process the second time")),
-              IO(println("Skipped correctly"))
+              IO.raiseError(new Exception("Impossible to process the second time")),
+              IO(note("Skipped correctly"))
             ) >>
             IO(
               dynamoDb.getItem(
@@ -149,7 +149,7 @@ class ProcessingStoreSpec extends AnyFlatSpec with Matchers with ScalaCheckDrive
 
     val n = 120
 
-    val result = processingStoreResource(processorId)
+    val result = deduplicationResource(processorId)
       .use { ps =>
         List.fill(math.abs(n))(id).parTraverse { i =>
           ps.protect(i, IO(1), IO(0))
@@ -167,22 +167,22 @@ class ProcessingStoreSpec extends AnyFlatSpec with Matchers with ScalaCheckDrive
       Sync[IO].delay(c.shutdown())
     )
 
-  def processingStoreResource(
+  def deduplicationResource(
       processorId: UUID,
       maxProcessingTime: FiniteDuration = 5.seconds
-  ): Resource[IO, ProcessingStore[IO, UUID]] =
+  ): Resource[IO, Deduplication[IO, UUID]] =
     for {
       tableName <- tableResource
-      processingStore <- processingStoreResource(tableName, processorId, maxProcessingTime)
-    } yield processingStore
+      deduplication <- deduplicationResource(tableName, processorId, maxProcessingTime)
+    } yield deduplication
 
-  def processingStoreResource(
+  def deduplicationResource(
       tableName: String,
       processorId: UUID,
       maxProcessingTime: FiniteDuration
-  ): Resource[IO, ProcessingStore[IO, UUID]] =
+  ): Resource[IO, Deduplication[IO, UUID]] =
     for {
-      processingStore <- ProcessingStore.resource[IO, UUID, UUID](
+      deduplication <- Deduplication.resource[IO, UUID, UUID](
         Config(
           tableName = Config.TableName(tableName),
           processorId = processorId,
@@ -191,5 +191,5 @@ class ProcessingStoreSpec extends AnyFlatSpec with Matchers with ScalaCheckDrive
           pollStrategy = PollStrategy.backoff(maxDuration = 30.seconds)
         )
       )
-    } yield processingStore
+    } yield deduplication
 }

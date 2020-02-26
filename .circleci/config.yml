@@ -1,24 +1,30 @@
 version: 2.1
 
 commands:
+  generate_sbt_cache_key:
+    description: "Generate sbt cache key"
+    steps:
+      - run: md5sum project/build.properties project/plugins.sbt project/Dependencies.scala build.sbt > .sbt_cache_key
 
   store_sbt_cache:
-    description: "Restore sbt cache"
+    description: "Store sbt cache"
     steps:
-    - save_cache:
-        key: dependencies-{{ .Branch }}-{{ checksum "build.sbt" }}
-        paths:
-        - /home/circleci/.ivy2
-        - /home/circleci/.sbt
+      - generate_sbt_cache_key
+      - save_cache:
+          key: sbt-{{ checksum ".sbt_cache_key" }}
+          paths:
+            - /home/circleci/.ivy2
+            - /home/circleci/.sbt
+            - /home/circleci/.cache/coursier
 
   restore_sbt_cache:
     description: "Restore sbt cache"
     steps:
-    - restore_cache:
-        keys:
-        - dependencies-{{ .Branch }}-{{ checksum "build.sbt" }}
-        - dependencies-{{ .Branch }}
-        - dependencies
+      - generate_sbt_cache_key
+      - restore_cache:
+          keys:
+            - sbt-{{ checksum ".sbt_cache_key" }}
+            - sbt
 
   add_github_host_ssh_key:
     description: "Add the github host SSH key"
@@ -29,6 +35,7 @@ commands:
           echo 'Adding the github host SSH key...'
           mkdir -p -m 0700 ~/.ssh/
           ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+
   configure_git_credentials:
     description: "Configure git credentials"
     steps:
@@ -78,7 +85,7 @@ jobs:
 
     - run:
         name: Compile
-        command: sbt test:compile
+        command: sbt +test:compile
 
     - persist_to_workspace:
         root: .
@@ -86,31 +93,6 @@ jobs:
         - target
         - project/target
         - project/project/target
-        - core/target
-        - clients/target
-
-  test:
-
-    executor: machine
-
-    steps:
-
-    - checkout
-
-    - attach_workspace:
-        at: .
-
-    - restore_sbt_cache
-
-    - run:
-        name: Test
-        command: sbt test:test
-
-    - store_test_results:
-        path: target/test-reports
-
-    - store_artifacts:
-        path: target/gc.log
 
   integration_test:
 
@@ -154,22 +136,18 @@ jobs:
 
     - run:
         name: Release
-        command: sbt releaseEarly
+        command: sbt +releaseEarly
 
 workflows:
   build-and-deploy:
     jobs:
     - build
-    - test:
-        requires:
-        - build
     - integration_test:
         requires:
         - build
     - publish:
         requires:
         - build
-        - test
         - integration_test
         filters:
           branches:

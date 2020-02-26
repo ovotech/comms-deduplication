@@ -21,7 +21,7 @@ import org.scanamo._
 
 import model._
 
-trait ProcessingStore[F[_], ID] {
+trait Deduplication[F[_], ID] {
 
   /**
     * Try to acquire a lock on a process
@@ -41,7 +41,7 @@ trait ProcessingStore[F[_], ID] {
   def protect[A](id: ID): Resource[F, ProcessStatus]
 }
 
-object ProcessingStore {
+object Deduplication {
 
   def processStatus[F[_]: Monad: Clock](
       maxProcessingTime: FiniteDuration
@@ -118,21 +118,21 @@ object ProcessingStore {
 
   def resource[F[_]: Async: ContextShift: Timer, ID: DynamoFormat, ProcessorID: DynamoFormat](
       config: Config[ProcessorID]
-  ): Resource[F, ProcessingStore[F, ID]] = {
+  ): Resource[F, Deduplication[F, ID]] = {
     val dynamoDbR: Resource[F, AmazonDynamoDBAsync] =
       Resource.make(Sync[F].delay(AmazonDynamoDBAsyncClientBuilder.defaultClient()))(c =>
         Sync[F].delay(c.shutdown())
       )
 
     dynamoDbR.map { client =>
-      ProcessingStore(config, client)
+      Deduplication(config, client)
     }
   }
 
   def apply[F[_]: Async: ContextShift: Timer, ID: DynamoFormat, ProcessorID: DynamoFormat](
       config: Config[ProcessorID],
       client: AmazonDynamoDBAsync
-  ): ProcessingStore[F, ID] = {
+  ): Deduplication[F, ID] = {
 
     // TODO Shift back
     def update(request: UpdateItemRequest) =
@@ -192,7 +192,7 @@ object ProcessingStore {
       }.rethrow
     }
 
-    new ProcessingStore[F, ID] {
+    new Deduplication[F, ID] {
 
       override def processing(id: ID): F[ProcessStatus] = {
         for {

@@ -59,10 +59,10 @@ lazy val deduplication = (project in file("."))
     releaseEarlyNoGpg := true,
 
     libraryDependencies ++=
-      dep("org.typelevel")("2.1.1")(
+      dep("org.typelevel")("2.1.2")(
         "cats-core"
       ) ++
-      dep("org.typelevel")("2.1.1")(
+      dep("org.typelevel")("2.1.2")(
         "cats-effect"
       ) ++
       dep("org.scala-lang.modules")("0.9.1")(

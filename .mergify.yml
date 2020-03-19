@@ -45,7 +45,6 @@ pull_request_rules:
       - author=ovo-scala-steward
       - "status-success=ci/circleci: build"
       - "status-success=ci/circleci: integration_test"
-      - "status-success=ci/circleci: test"
       - body~=labels:.*semver-minor
     actions:
       review:
@@ -59,7 +58,6 @@ pull_request_rules:
       - author=ovo-scala-steward
       - "status-success=ci/circleci: build"
       - "status-success=ci/circleci: integration_test"
-      - "status-success=ci/circleci: test"
       - body~=labels:.*semver-patch
     actions:
       review:

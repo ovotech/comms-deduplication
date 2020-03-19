@@ -1,14 +1,34 @@
 pull_request_rules:
 
-  - name: label ovo-scala-steward's failed PRs
+  - name: label ovo-scala-steward's pre-release version PRs
     conditions:
       - author=ovo-scala-steward
-      - status-failure~=ci/circleci
+      - body~=labels:.*semver-pre-release
     actions:
       label:
         add:
           - ovo-scala-steward
-          - failed-update
+          - pre-release-update
+
+  - name: label ovo-scala-steward's minor version PRs
+    conditions:
+      - author=ovo-scala-steward
+      - body~=labels:.*semver-minor
+    actions:
+      label:
+        add:
+          - ovo-scala-steward
+          - minor-update
+
+  - name: label ovo-scala-steward's patch version PRs
+    conditions:
+      - author=ovo-scala-steward
+      - body~=labels:.*semver-patch
+    actions:
+      label:
+        add:
+          - ovo-scala-steward
+          - patch-update
 
   - name: label ovo-scala-steward's major version PRs
     conditions:
@@ -32,14 +52,6 @@ pull_request_rules:
         type: APPROVE
       merge:
         strict: smart
-        strict_method: rebase
-        method: merge
-      label:
-        add:
-          - ovo-scala-steward
-          - minor-update
-        remove:
-          - failed-update
       delete_head_branch: {}
 
   - name: automatically merge ovo-scala-steward's patch version PRs
@@ -54,12 +66,4 @@ pull_request_rules:
         type: APPROVE
       merge:
         strict: smart
-        strict_method: rebase
-        method: merge
-      label:
-        add:
-          - ovo-scala-steward
-          - patch-update
-        remove:
-          - failed-update
       delete_head_branch: {}

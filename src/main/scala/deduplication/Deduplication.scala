@@ -124,9 +124,7 @@ object Deduplication {
         Sync[F].delay(c.shutdown())
       )
 
-    dynamoDbR.map { client =>
-      Deduplication(config, client)
-    }
+    dynamoDbR.map { client => Deduplication(config, client) }
   }
 
   def apply[F[_]: Async: ContextShift: Timer, ID: DynamoFormat, ProcessorID: DynamoFormat](

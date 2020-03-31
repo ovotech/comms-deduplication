@@ -61,7 +61,7 @@ lazy val deduplication = (project in file("."))
         dep("org.scala-lang.modules")("0.9.1")(
           "scala-java8-compat"
         ) ++
-        dep("org.scanamo")("1.0.0-M11")(
+        dep("org.scanamo")("1.0.0-M12-1")(
           "scanamo",
           "scanamo-cats-effect"
         ) ++

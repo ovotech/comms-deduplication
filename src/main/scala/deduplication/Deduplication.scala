@@ -16,10 +16,11 @@ import cats.effect.implicits._
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsyncClientBuilder}
 import com.amazonaws.services.dynamodbv2.model._
 import com.amazonaws.handlers._
-
 import org.scanamo._
+import org.scanamo.error.{DynamoReadError, NoPropertyOfType}
 
 import model._
+import ScanamoHelpers._
 
 trait Deduplication[F[_], ID] {
 
@@ -124,9 +125,7 @@ object Deduplication {
         Sync[F].delay(c.shutdown())
       )
 
-    dynamoDbR.map { client =>
-      Deduplication(config, client)
-    }
+    dynamoDbR.map { client => Deduplication(config, client) }
   }
 
   def apply[F[_]: Async: ContextShift: Timer, ID: DynamoFormat, ProcessorID: DynamoFormat](
@@ -294,5 +293,19 @@ object Deduplication {
             )
         }
     }
+  }
+}
+
+/*
+ * TODO: Remove this once upgrade to later version of Scanamo
+ * This method exists in 1.0.0-M12 but because of this issue:
+ * https://github.com/scanamo/scanamo/issues/583, we cannot use M12 because
+ * it writes List[T] to a Map if T is not a primitive type. As a result, we
+ * need to use M11 which does not have this `get` method
+ */
+object ScanamoHelpers {
+  implicit class DynObjExtras(obj: DynamoObject) {
+    def get[A: DynamoFormat](key: String): Either[DynamoReadError, A] =
+      obj(key).getOrElse(DynamoValue.nil).as[A]
   }
 }

@@ -39,7 +39,7 @@ trait Deduplication[F[_], ID] {
 
   def protect[A](id: ID, ifNotProcessed: F[A], ifProcessed: F[A]): F[A]
 
-  def protect[A](id: ID): Resource[F, ProcessStatus]
+  def protect(id: ID): Resource[F, ProcessStatus]
 }
 
 object Deduplication {
@@ -281,7 +281,7 @@ object Deduplication {
         }
       }
 
-      override def protect[A](id: ID): Resource[F, ProcessStatus] =
+      override def protect(id: ID): Resource[F, ProcessStatus] =
         Resource.make(acquire(id)) {
           case ProcessStatus.NotStarted | ProcessStatus.Expired => processed(id)
           case ProcessStatus.Completed => ().pure[F]

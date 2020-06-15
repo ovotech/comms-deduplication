@@ -88,9 +88,9 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
       val result = deduplicationResource(processorId, maxProcessingTime)
         .use { ps =>
           for {
-            a <- ps.tryProcess(id)
+            a <- ps.tryStartProcess(id)
             _ <- IO.sleep(maxProcessingTime + 1.second)
-            bAndTime <- time(ps.tryProcess(id))
+            bAndTime <- time(ps.tryStartProcess(id))
           } yield (a, bAndTime)
         }
         .unsafeRunSync()

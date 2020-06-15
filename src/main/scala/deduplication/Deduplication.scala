@@ -24,10 +24,39 @@ import ScanamoHelpers._
 
 trait Deduplication[F[_], ID] {
 
-  def tryProcess(id: ID): F[Sample]
+  /**
+    * Try to start a process.
+    *
+    * If the process with the giving id has never started before, this will start a new process and return Sample.notSeen
+    * If another process with the same id has already completed, this will do nothing and return Sample.seen
+    * If another process with the same id has already started and timeouted, this will do nothing and return Sample.seen
+    * If another process with the same id is still running, this will wait until it will complete or timeout
+    *
+    * @param id The process id to start
+    * @return Sample.unSeen or Sample.seen
+    */
+  def tryStartProcess(id: ID): F[Sample]
 
-  def commitProcess(id: ID): F[Unit]
+  /**
+    * Complete a started process.
+    *
+    * After calling this function, any other call to [[tryStartProcess]] with the same id, will result in a [[Sample.seen]].
+    *
+    * @param id The process id to complete
+    * @return Unit
+    */
+  def completeProcess(id: ID): F[Unit]
 
+  /**
+    * Do the best effort to ensure a process to be successfully executed only once.
+    *
+    * If the process has already runned successfully before, it will return [[None]].
+    * Otherwise, it will return the process result wrapped in Some [[Some]].
+    *
+    * @param id
+    * @param process
+    * @return
+    */
   def protect[A](id: ID, process: F[A]): F[Option[A]]
 
   def protect[A](id: ID, ifNotSeen: F[A], ifSeen: F[A]): F[A]
@@ -58,15 +87,15 @@ object Deduplication {
         .map { now =>
           /*
            * If the startedAt is:
-           *  - In the past compared to expected finishing time the processed has expired
+           *  - In the past compared to expected finishing time the processed has timeout
            *  - In the future compared to expected finishing time present the process has started but not yet completed
            */
-          val isExpired = p.startedAt
+          val isTimeout = p.startedAt
             .plus(maxProcessingTime.toJava)
             .isBefore(now)
 
-          if (isExpired)
-            ProcessStatus.Expired
+          if (isTimeout)
+            ProcessStatus.Timeout
           else
             ProcessStatus.Started
         }
@@ -197,7 +226,7 @@ object Deduplication {
 
     new Deduplication[F, ID] {
 
-      def tryProcess(id: ID): F[Sample] = {
+      def tryStartProcess(id: ID): F[Sample] = {
 
         val pollStrategy = config.pollStrategy
 
@@ -212,7 +241,7 @@ object Deduplication {
               val totalDurationF = nowF[F]
                 .map(now => (now.toEpochMilli - startedAt.toEpochMilli).milliseconds)
 
-              // retry until it is either Completed or Expired
+              // retry until it is either Completed or Timeout
               totalDurationF
                 .map(td => td >= pollStrategy.maxPollDuration)
                 .ifM(
@@ -223,7 +252,7 @@ object Deduplication {
                     config.pollStrategy.nextDelay(pollNo, pollDelay)
                   )
                 )
-            case ProcessStatus.NotStarted | ProcessStatus.Expired =>
+            case ProcessStatus.NotStarted | ProcessStatus.Timeout =>
               Sample.notSeen.pure[F]
 
             case ProcessStatus.Completed =>
@@ -243,7 +272,7 @@ object Deduplication {
         nowF[F].flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
       }
 
-      override def commitProcess(id: ID): F[Unit] = {
+      override def completeProcess(id: ID): F[Unit] = {
         for {
           now <- nowF[F]
           _ <- update(
@@ -273,9 +302,9 @@ object Deduplication {
       }
 
       override def protect[A](id: ID, ifNotSeen: F[A], ifSeen: F[A]): F[A] = {
-        tryProcess(id)
+        tryStartProcess(id)
           .flatMap(_.fold(ifNotSeen, ifSeen))
-          .flatTap(_ => commitProcess(id))
+          .flatTap(_ => completeProcess(id))
       }
 
       override def protect[A](id: ID, process: F[A]): F[Option[A]] = {

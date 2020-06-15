@@ -29,7 +29,7 @@ object model {
     case object NotStarted extends ProcessStatus
     case object Started extends ProcessStatus
     case object Completed extends ProcessStatus
-    case object Expired extends ProcessStatus
+    case object Timeout extends ProcessStatus
   }
 
   case class Expiration(instant: Instant)

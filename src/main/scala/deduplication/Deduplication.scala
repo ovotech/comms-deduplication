@@ -22,44 +22,52 @@ import org.scanamo.error.{DynamoReadError, NoPropertyOfType}
 import model._
 import ScanamoHelpers._
 
+/**
+  *
+  */
 trait Deduplication[F[_], ID] {
 
   /**
     * Try to start a process.
     *
-    * If the process with the giving id has never started before, this will start a new process and return Sample.notSeen
-    * If another process with the same id has already completed, this will do nothing and return Sample.seen
-    * If another process with the same id has already started and timeouted, this will do nothing and return Sample.seen
+    * If the process with the giving id has never started before, this will start a new process and return Some(complete)
+    * If another process with the same id has already completed, this will do nothing and return None
+    * If another process with the same id has already started and timeouted, this will do nothing and return None
     * If another process with the same id is still running, this will wait until it will complete or timeout
     *
+    * If markAsComplete fails, the process will likely be duplicated.
+    * If the process takes more time than maxProcessingTime, you may have duplicate if two processes with same ID happen at the same time
+    *
+    * eg
+    * ```
+    * tryStartProcess(id)
+    *   .flatMap {
+    *     case Outcome.New(markAsComplete) =>
+    *       doYourStuff.flatTap(_ => markAsComplete)
+    *     case Outcome.Duplicate() =>
+    *       dontDoYourStuff
+    *   }
+    * ```
+    *
     * @param id The process id to start
-    * @return Sample.unSeen or Sample.seen
+    * @return An Outcome.New or Outcome.Duplicate. The Outcome.New will contain an effect to complete the just started process.
     */
-  def tryStartProcess(id: ID): F[Sample]
-
-  /**
-    * Complete a started process.
-    *
-    * After calling this function, any other call to [[tryStartProcess]] with the same id, will result in a [[Sample.seen]].
-    *
-    * @param id The process id to complete
-    * @return Unit
-    */
-  def completeProcess(id: ID): F[Unit]
+  def tryStartProcess(id: ID): F[Outcome[F]]
 
   /**
     * Do the best effort to ensure a process to be successfully executed only once.
     *
-    * If the process has already runned successfully before, it will return [[None]].
-    * Otherwise, it will return the process result wrapped in Some [[Some]].
+    * If the process has already runned successfully before, it will run the [[ifDuplicate]].
+    * Otherwise, it will run the [[ifNew]].
     *
-    * @param id
-    * @param process
-    * @return
+    * The return value is either the result of [[ifNew]] or [[ifDuplicate]].
+    *
+    * @param id The id of the process to run.
+    * @param ifNew The effect to run if the process is new.
+    * @param ifDuplicate The effect to run if the process is duplicate.
+    * @return the result of [[ifNew]] or [[ifDuplicate]].
     */
-  def protect[A](id: ID, process: F[A]): F[Option[A]]
-
-  def protect[A](id: ID, ifNotSeen: F[A], ifSeen: F[A]): F[A]
+  def protect[A](id: ID, ifNew: F[A], ifDuplicate: F[A]): F[A]
 }
 
 object Deduplication {
@@ -81,7 +89,7 @@ object Deduplication {
       maxProcessingTime: FiniteDuration
   )(p: Process[_, _]): F[ProcessStatus] =
     if (p.completedAt.isDefined) {
-      Monad[F].point(ProcessStatus.Completed)
+      ProcessStatus.Completed.pure[F].widen
     } else {
       nowF[F]
         .map { now =>
@@ -192,6 +200,8 @@ object Deduplication {
         now: Instant
     ): F[Option[Process[ID, ProcessorID]]] = {
 
+      val startedAtVar = ":startedAt"
+
       val result = update(
         new UpdateItemRequest()
           .withTableName(config.tableName.value)
@@ -202,11 +212,11 @@ object Deduplication {
             ).asJava
           )
           .withUpdateExpression(
-            s"SET ${field.startedAt} = if_not_exists(${field.startedAt}, :startedAt)"
+            s"SET ${field.startedAt} = if_not_exists(${field.startedAt}, ${startedAtVar})"
           )
           .withExpressionAttributeValues(
             Map(
-              ":startedAt" -> instantDynamoFormat.write(now).toAttributeValue
+              startedAtVar -> instantDynamoFormat.write(now).toAttributeValue
             ).asJava
           )
           .withReturnValues(ReturnValue.ALL_OLD)
@@ -226,7 +236,40 @@ object Deduplication {
 
     new Deduplication[F, ID] {
 
-      def tryStartProcess(id: ID): F[Sample] = {
+      override def tryStartProcess(id: ID): F[Outcome[F]] = {
+
+        val completeProcess: F[Unit] = {
+
+          val completedAtVar = ":completedAt"
+          val expiresOnVar = ":expiresOn"
+
+          for {
+            now <- nowF[F]
+            _ <- update(
+              new UpdateItemRequest()
+                .withTableName(config.tableName.value)
+                .withKey(
+                  Map(
+                    field.id -> DynamoFormat[ID].write(id).toAttributeValue,
+                    field.processorId -> DynamoFormat[ProcessorID]
+                      .write(config.processorId)
+                      .toAttributeValue
+                  ).asJava
+                )
+                .withUpdateExpression(
+                  s"SET ${field.completedAt}=${completedAtVar}, ${field.expiresOn}=${expiresOnVar}"
+                )
+                .withExpressionAttributeValues(
+                  Map(
+                    completedAtVar -> instantDynamoFormat.write(now).toAttributeValue,
+                    expiresOnVar -> new AttributeValue()
+                      .withN(now.plus(config.ttl.toJava).getEpochSecond().toString)
+                  ).asJava
+                )
+                .withReturnValues(ReturnValue.NONE)
+            )
+          } yield ()
+        }
 
         val pollStrategy = config.pollStrategy
 
@@ -234,9 +277,9 @@ object Deduplication {
             startedAt: Instant,
             pollNo: Int,
             pollDelay: FiniteDuration
-        ): F[Sample] = {
+        ): F[Outcome[F]] = {
 
-          def nextStep(ps: ProcessStatus) = ps match {
+          def nextStep(ps: ProcessStatus): F[Outcome[F]] = ps match {
             case ProcessStatus.Started =>
               val totalDurationF = nowF[F]
                 .map(now => (now.toEpochMilli - startedAt.toEpochMilli).milliseconds)
@@ -253,10 +296,10 @@ object Deduplication {
                   )
                 )
             case ProcessStatus.NotStarted | ProcessStatus.Timeout =>
-              Sample.notSeen.pure[F]
+              Outcome.New(completeProcess).pure[F].widen[Outcome[F]]
 
             case ProcessStatus.Completed =>
-              Sample.seen.pure[F]
+              Monad[F].point(Outcome.Duplicate())
           }
 
           for {
@@ -272,43 +315,14 @@ object Deduplication {
         nowF[F].flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
       }
 
-      override def completeProcess(id: ID): F[Unit] = {
-        for {
-          now <- nowF[F]
-          _ <- update(
-            new UpdateItemRequest()
-              .withTableName(config.tableName.value)
-              .withKey(
-                Map(
-                  field.id -> DynamoFormat[ID].write(id).toAttributeValue,
-                  field.processorId -> DynamoFormat[ProcessorID]
-                    .write(config.processorId)
-                    .toAttributeValue
-                ).asJava
-              )
-              .withUpdateExpression(
-                s"SET ${field.completedAt}=:completedAt, ${field.expiresOn}=:expiresOn"
-              )
-              .withExpressionAttributeValues(
-                Map(
-                  ":completedAt" -> instantDynamoFormat.write(now).toAttributeValue,
-                  ":expiresOn" -> new AttributeValue()
-                    .withN(now.plus(config.ttl.toJava).getEpochSecond().toString)
-                ).asJava
-              )
-              .withReturnValues(ReturnValue.NONE)
-          )
-        } yield ()
-      }
-
       override def protect[A](id: ID, ifNotSeen: F[A], ifSeen: F[A]): F[A] = {
         tryStartProcess(id)
-          .flatMap(_.fold(ifNotSeen, ifSeen))
-          .flatTap(_ => completeProcess(id))
-      }
-
-      override def protect[A](id: ID, process: F[A]): F[Option[A]] = {
-        protect(id, process.map(_.some), none[A].pure[F])
+          .flatMap {
+            case Outcome.New(markAsComplete) =>
+              ifNotSeen.flatTap(_ => markAsComplete)
+            case Outcome.Duplicate() =>
+              ifSeen
+          }
       }
     }
   }

@@ -1,11 +1,14 @@
 package com.ovoenergy.comms.deduplication
 
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.collection.JavaConverters._
 
 import cats.effect._
+import cats.effect.concurrent._
 import cats.implicits._
 
 import org.scalatest.matchers.should.Matchers
@@ -14,12 +17,9 @@ import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsync
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsyncClientBuilder
-import com.amazonaws.services.dynamodbv2.model.GetItemRequest
-import com.amazonaws.services.dynamodbv2.model.AttributeValue
 
 import model._
-import cats.effect.concurrent.Ref
-import java.util.concurrent.TimeUnit
+import Config._
 
 class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenPropertyChecks {
 
@@ -70,9 +70,9 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
         .use { ps =>
           for {
             ref <- Ref[IO].of(0)
-            _ <- ps.protect(id, IO.raiseError[Int](new Exception("Expected exception"))).attempt
-            _ <- ps.protect(id, ref.set(1))
-            _ <- ps.protect(id, ref.set(3))
+            _ <- ps.protect(id, IO.raiseError[Unit](new Exception("Expected exception")), IO.unit).attempt
+            _ <- ps.protect(id, ref.set(1), IO.unit)
+            _ <- ps.protect(id, ref.set(3), IO.unit)
             result <- ref.get
           } yield result
         }
@@ -95,10 +95,10 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
         }
         .unsafeRunSync()
 
-      val (a, (b, bTime)) = result
-      a shouldBe Sample.notSeen
-      b shouldBe Sample.notSeen
-      bTime should be < maxProcessingTime
+      val (x, (y, yTime)) = result
+      x shouldBe a[Outcome.New[IO]]
+      y shouldBe a[Outcome.New[IO]]
+      yTime should be < maxProcessingTime
   }
 
   it should "process only one event out of multiple concurrent events" in forAll(MinSuccessful(1)) {
@@ -106,7 +106,7 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
 
       val n = 120
 
-      val result = deduplicationResource(processorId)
+      val result = deduplicationResource(processorId, maxProcessingTime = 30.seconds)
         .use { ps =>
           List.fill(math.abs(n))(id).parTraverse { i =>
             ps.protect(i, IO(1), IO(0))

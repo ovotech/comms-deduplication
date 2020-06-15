@@ -18,7 +18,7 @@ import com.amazonaws.services.dynamodbv2.model.GetItemRequest
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
 
 import model._
-
+import cats.effect.concurrent.Ref
 
 class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenPropertyChecks {
 
@@ -26,138 +26,162 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
   implicit val contextShift = IO.contextShift(ec)
   implicit val timer: Timer[IO] = IO.timer(ec)
 
-  "Deduplication" should "always process event for the first time" in forAll { (processorId: UUID, id1: UUID, id2: UUID) =>
+  "Deduplication" should "always process event for the first time" in forAll {
+    (processorId: UUID, id1: UUID, id2: UUID) =>
 
-    val result = deduplicationResource(processorId)
-      .use { ps =>
-        for {
-          a <- ps.protect(id1, IO("nonProcessed"), IO("processed"))
-          b <- ps.protect(id2, IO("nonProcessed"), IO("processed"))
-        } yield (a, b)
-      }
-      .unsafeRunSync()
+      val result = deduplicationResource(processorId)
+        .use { ps =>
+          for {
+            a <- ps.protect(id1, IO("nonProcessed"), IO("processed"))
+            b <- ps.protect(id2, IO("nonProcessed"), IO("processed"))
+          } yield (a, b)
+        }
+        .unsafeRunSync()
 
-    val (a, b) = result
-    a shouldBe "nonProcessed"
-    b shouldBe "nonProcessed"
+      val (a, b) = result
+      a shouldBe "nonProcessed"
+      b shouldBe "nonProcessed"
   }
 
-  it should "process event for the first time, ignore after that" in forAll { (processorId: UUID, id: UUID) =>
+  it should "process event for the first time, ignore after that" in forAll {
+    (processorId: UUID, id: UUID) =>
 
-    val result = deduplicationResource(processorId)
-      .use { ps =>
-        for {
-          a <- ps.protect(id, IO("nonProcessed"), IO("processed"))
-          b <- ps.protect(id, IO("nonProcessed"), IO("processed"))
-        } yield (a, b)
-      }
-      .unsafeRunSync()
+      val result = deduplicationResource(processorId)
+        .use { ps =>
+          for {
+            a <- ps.protect(id, IO("nonProcessed"), IO("processed"))
+            b <- ps.protect(id, IO("nonProcessed"), IO("processed"))
+          } yield (a, b)
+        }
+        .unsafeRunSync()
 
-    val (a, b) = result
-    a shouldBe "nonProcessed"
-    b shouldBe "processed"
+      val (a, b) = result
+      a shouldBe "nonProcessed"
+      b shouldBe "processed"
   }
 
-  it should "process event for the first time, ignore other before expiration" in forAll { (processorId: UUID, id: UUID) =>
+  it should "process event for the first time, ignore other before expiration" in forAll {
+    (processorId: UUID, id: UUID) =>
 
-    val result = deduplicationResource(processorId, 5.seconds)
-      .use { ps =>
-        for {
-          a <- ps.processing(id).map {
-            case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
-            case _ => "processed"
-          }
-          b <- ps.processing(id).map {
-            case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
-            case _ => "processed"
-          }
-        } yield (a, b)
-      }
-      .unsafeRunSync()
+      val result = deduplicationResource(processorId, 5.seconds)
+        .use { ps =>
+          for {
+            a <- ps.processing(id).map {
+              case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
+              case _ => "processed"
+            }
+            b <- ps.processing(id).map {
+              case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
+              case _ => "processed"
+            }
+          } yield (a, b)
+        }
+        .unsafeRunSync()
 
-    val (a, b) = result
-    a shouldBe "nonProcessed"
-    b shouldBe "processed"
+      val (a, b) = result
+      a shouldBe "nonProcessed"
+      b shouldBe "processed"
   }
 
-  it should "process event for the first time, accept other after expiration" in forAll { (processorId: UUID, id: UUID) =>
+  it should "re-process the event if it failes the first time" in forAll {
+    (processorId: UUID, id: UUID) =>
 
-    val result = deduplicationResource(processorId, 1.seconds)
-      .use { ps =>
-        for {
-          a <- ps.processing(id).map {
-            case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
-            case _ => "processed"
-          }
-          _ <- IO.sleep(5.seconds)
-          b <- ps.processing(id).map {
-            case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
-            case _ => "processed"
-          }
-        } yield (a, b)
-      }
-      .unsafeRunSync()
+      val result = deduplicationResource(processorId, 5.seconds)
+        .use { ps =>
+          for {
+            ref <- Ref[IO].of(0)
+            _ <- ps.protect(id, IO.raiseError[Int](new Exception("Expected exception")), ref.set(1)).attempt
+            _ <- ps.protect(id, ref.set(1), ref.set(2))
+            _ <- ps.protect(id, ref.set(3), ref.set(4))
+            result <- ref.get
+          } yield result
+        }
+        .unsafeRunSync()
 
-    val (a, b) = result
-    a shouldBe "nonProcessed"
-    b shouldBe "nonProcessed"
+      result shouldBe 1
   }
 
-  it should "set startedAt > completedAt when try to process a duplicate" in forAll { (processorId: UUID, id: UUID) =>
+  it should "process event for the first time, accept other after expiration" in forAll {
+    (processorId: UUID, id: UUID) =>
 
-    val rs = for {
-      tableName <- tableResource
-      dynamoDb <- dynamoDbR
-      deduplication <- deduplicationResource(tableName, processorId, 5.seconds)
-    } yield (tableName, dynamoDb, deduplication)
+      val result = deduplicationResource(processorId, 1.seconds)
+        .use { ps =>
+          for {
+            a <- ps.processing(id).map {
+              case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
+              case _ => "processed"
+            }
+            _ <- IO.sleep(5.seconds)
+            b <- ps.processing(id).map {
+              case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
+              case _ => "processed"
+            }
+          } yield (a, b)
+        }
+        .unsafeRunSync()
 
-    rs.use {
-        case (tableName, dynamoDb, deduplication) =>
-          deduplication.protect(
-            id,
-            IO(note("Processed correctly")),
-            IO.raiseError(new Exception("Impossible to skip the first time"))
-          ) >>
+      val (a, b) = result
+      a shouldBe "nonProcessed"
+      b shouldBe "nonProcessed"
+  }
+
+  it should "set startedAt > completedAt when try to process a duplicate" in forAll {
+    (processorId: UUID, id: UUID) =>
+
+      val rs = for {
+        tableName <- tableResource
+        dynamoDb <- dynamoDbR
+        deduplication <- deduplicationResource(tableName, processorId, 5.seconds)
+      } yield (tableName, dynamoDb, deduplication)
+
+      rs.use {
+          case (tableName, dynamoDb, deduplication) =>
             deduplication.protect(
               id,
-              IO.raiseError(new Exception("Impossible to process the second time")),
-              IO(note("Skipped correctly"))
+              IO(note("Processed correctly")),
+              IO.raiseError(new Exception("Impossible to skip the first time"))
             ) >>
-            IO(
-              dynamoDb.getItem(
-                new GetItemRequest()
-                  .withConsistentRead(true)
-                  .withTableName(tableName)
-                  .withKey(
-                    Map(
-                      "id" -> new AttributeValue().withS(id.toString),
-                      "processorId" -> new AttributeValue().withS(processorId.toString())
-                    ).asJava
-                  )
-              )
-            ).map { res =>
-              val startedAt = res.getItem().get("startedAt").getN().toLong
-              val completedAt = res.getItem().get("completedAt").getN().toLong
+              deduplication.protect(
+                id,
+                IO.raiseError(new Exception("Impossible to process the second time")),
+                IO(note("Skipped correctly"))
+              ) >>
+              IO(
+                dynamoDb.getItem(
+                  new GetItemRequest()
+                    .withConsistentRead(true)
+                    .withTableName(tableName)
+                    .withKey(
+                      Map(
+                        "id" -> new AttributeValue().withS(id.toString),
+                        "processorId" -> new AttributeValue().withS(processorId.toString())
+                      ).asJava
+                    )
+                )
+              ).map { res =>
+                val startedAt = res.getItem().get("startedAt").getN().toLong
+                val completedAt = res.getItem().get("completedAt").getN().toLong
 
-              startedAt should be > completedAt
-            }
-      }
-      .unsafeRunSync()
+                startedAt should be > completedAt
+              }
+        }
+        .unsafeRunSync()
   }
 
-  it should "process only one event out of multiple concurrent events" in forAll(MinSuccessful(1)) { (processorId: UUID, id: UUID) =>
+  it should "process only one event out of multiple concurrent events" in forAll(MinSuccessful(1)) {
+    (processorId: UUID, id: UUID) =>
 
-    val n = 120
+      val n = 120
 
-    val result = deduplicationResource(processorId)
-      .use { ps =>
-        List.fill(math.abs(n))(id).parTraverse { i =>
-          ps.protect(i, IO(1), IO(0))
+      val result = deduplicationResource(processorId)
+        .use { ps =>
+          List.fill(math.abs(n))(id).parTraverse { i =>
+            ps.protect(i, IO(1), IO(0))
+          }
         }
-      }
-      .unsafeRunSync()
+        .unsafeRunSync()
 
-    result.sum shouldBe 1
+      result.sum shouldBe 1
   }
 
   val tableResource = Resource.liftF(IO(sys.env.getOrElse("TEST_TABLE", "phil-processing")))

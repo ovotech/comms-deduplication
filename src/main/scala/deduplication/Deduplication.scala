@@ -4,7 +4,7 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration._
 import scala.compat.java8.DurationConverters._
 import scala.collection.JavaConverters._
 
@@ -24,25 +24,29 @@ import ScanamoHelpers._
 
 trait Deduplication[F[_], ID] {
 
-  /**
-    * Try to acquire a lock on a process
-    *
-    * Returns a [[ProcessStatus]] instance:
-    *  - [[ProcessStatus.NotStarted]] if the process has not been started yet
-    *  - [[ProcessStatus.Started]] if the process has been started but not completed
-    *  - [[ProcessStatus.Completed]] if the process has been completed
-    *  - [[ProcessStatus.Expired]] if the process has started but has not been completed in time
-    */
-  def processing(id: ID): F[ProcessStatus]
+  def tryProcess(id: ID): F[Sample]
 
-  def processed(id: ID): F[Unit]
+  def commitProcess(id: ID): F[Unit]
 
-  def protect[A](id: ID, ifNotProcessed: F[A], ifProcessed: F[A]): F[A]
+  def protect[A](id: ID, process: F[A]): F[Option[A]]
 
-  def protect(id: ID): Resource[F, ProcessStatus]
+  def protect[A](id: ID, ifNotSeen: F[A], ifSeen: F[A]): F[A]
 }
 
 object Deduplication {
+
+  private object field {
+    val id = "id"
+    val processorId = "processorId"
+    val startedAt = "startedAt"
+    val completedAt = "completedAt"
+    val expiresOn = "expiresOn"
+  }
+
+  def nowF[F[_]: Functor: Clock] =
+    Clock[F]
+      .realTime(TimeUnit.MILLISECONDS)
+      .map(Instant.ofEpochMilli)
 
   def processStatus[F[_]: Monad: Clock](
       maxProcessingTime: FiniteDuration
@@ -50,9 +54,7 @@ object Deduplication {
     if (p.completedAt.isDefined) {
       Monad[F].point(ProcessStatus.Completed)
     } else {
-      Clock[F]
-        .realTime(TimeUnit.MILLISECONDS)
-        .map(Instant.ofEpochMilli)
+      nowF[F]
         .map { now =>
           /*
            * If the startedAt is:
@@ -95,25 +97,26 @@ object Deduplication {
 
   private implicit def processDynamoFormat[ID: DynamoFormat, ProcessorID: DynamoFormat]
       : DynamoFormat[Process[ID, ProcessorID]] = new DynamoFormat[Process[ID, ProcessorID]] {
+
     def read(av: DynamoValue): Either[DynamoReadError, Process[ID, ProcessorID]] =
       for {
         obj <- av.asObject
           .toRight(NoPropertyOfType("object", av))
           .leftWiden[DynamoReadError]
-        id <- obj.get[ID]("id")
-        processorId <- obj.get[ProcessorID]("processorId")
-        startedAt <- obj.get[Instant]("startedAt")
-        completedAt <- obj.get[Option[Instant]]("completedAt")
-        expiresOn <- obj.get[Option[Expiration]]("completedAt")
+        id <- obj.get[ID](field.id)
+        processorId <- obj.get[ProcessorID](field.processorId)
+        startedAt <- obj.get[Instant](field.startedAt)
+        completedAt <- obj.get[Option[Instant]](field.completedAt)
+        expiresOn <- obj.get[Option[Expiration]](field.expiresOn)
       } yield Process(id, processorId, startedAt, completedAt, expiresOn)
 
     def write(process: Process[ID, ProcessorID]): DynamoValue =
       DynamoObject(
-        "id" -> DynamoFormat[ID].write(process.id),
-        "processorId" -> DynamoFormat[ProcessorID].write(process.processorId),
-        "startedAt" -> DynamoFormat[Instant].write(process.startedAt),
-        "completedAt" -> DynamoFormat[Option[Instant]].write(process.completedAt),
-        "expiresOn" -> DynamoFormat[Option[Expiration]].write(process.expiresOn)
+        field.id -> DynamoFormat[ID].write(process.id),
+        field.processorId -> DynamoFormat[ProcessorID].write(process.processorId),
+        field.startedAt -> DynamoFormat[Instant].write(process.startedAt),
+        field.completedAt -> DynamoFormat[Option[Instant]].write(process.completedAt),
+        field.expiresOn -> DynamoFormat[Option[Expiration]].write(process.expiresOn)
       ).toDynamoValue
   }
 
@@ -133,7 +136,6 @@ object Deduplication {
       client: AmazonDynamoDBAsync
   ): Deduplication[F, ID] = {
 
-    // TODO Shift back
     def update(request: UpdateItemRequest) =
       Async[F]
         .async[UpdateItemResult] { cb =>
@@ -166,11 +168,13 @@ object Deduplication {
           .withTableName(config.tableName.value)
           .withKey(
             Map(
-              "id" -> DynamoFormat[ID].write(id).toAttributeValue,
-              "processorId" -> DynamoFormat[ProcessorID].write(processorId).toAttributeValue
+              field.id -> DynamoFormat[ID].write(id).toAttributeValue,
+              field.processorId -> DynamoFormat[ProcessorID].write(processorId).toAttributeValue
             ).asJava
           )
-          .withUpdateExpression("SET startedAt=:startedAt")
+          .withUpdateExpression(
+            s"SET ${field.startedAt} = if_not_exists(${field.startedAt}, :startedAt)"
+          )
           .withExpressionAttributeValues(
             Map(
               ":startedAt" -> instantDynamoFormat.write(now).toAttributeValue
@@ -193,35 +197,69 @@ object Deduplication {
 
     new Deduplication[F, ID] {
 
-      override def processing(id: ID): F[ProcessStatus] = {
-        for {
-          now <- Timer[F].clock
-            .realTime(TimeUnit.MILLISECONDS)
-            .map(Instant.ofEpochMilli)
-          processOpt <- startProcessingUpdate(id, config.processorId, now)
-          status <- processOpt
-            .traverse(processStatus[F](config.maxProcessingTime))
-            .map(_.getOrElse(ProcessStatus.NotStarted))
-        } yield status
+      def tryProcess(id: ID): F[Sample] = {
+
+        val pollStrategy = config.pollStrategy
+
+        def doIt(
+            startedAt: Instant,
+            pollNo: Int,
+            pollDelay: FiniteDuration
+        ): F[Sample] = {
+
+          def nextStep(ps: ProcessStatus) = ps match {
+            case ProcessStatus.Started =>
+              val totalDurationF = nowF[F]
+                .map(now => (now.toEpochMilli - startedAt.toEpochMilli).milliseconds)
+
+              // retry until it is either Completed or Expired
+              totalDurationF
+                .map(td => td >= pollStrategy.maxPollDuration)
+                .ifM(
+                  Sync[F].raiseError(new TimeoutException(s"Stop polling after ${pollNo} polls")),
+                  Timer[F].sleep(pollDelay) >> doIt(
+                    startedAt,
+                    pollNo + 1,
+                    config.pollStrategy.nextDelay(pollNo, pollDelay)
+                  )
+                )
+            case ProcessStatus.NotStarted | ProcessStatus.Expired =>
+              Sample.notSeen.pure[F]
+
+            case ProcessStatus.Completed =>
+              Sample.seen.pure[F]
+          }
+
+          for {
+            now <- nowF[F]
+            processOpt <- startProcessingUpdate(id, config.processorId, now)
+            status <- processOpt
+              .traverse(processStatus[F](config.maxProcessingTime))
+              .map(_.getOrElse(ProcessStatus.NotStarted))
+            sample <- nextStep(status)
+          } yield sample
+        }
+
+        nowF[F].flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
       }
 
-      override def processed(id: ID): F[Unit] = {
+      override def commitProcess(id: ID): F[Unit] = {
         for {
-          now <- Timer[F].clock
-            .realTime(TimeUnit.MILLISECONDS)
-            .map(Instant.ofEpochMilli)
+          now <- nowF[F]
           _ <- update(
             new UpdateItemRequest()
               .withTableName(config.tableName.value)
               .withKey(
                 Map(
-                  "id" -> DynamoFormat[ID].write(id).toAttributeValue,
-                  "processorId" -> DynamoFormat[ProcessorID]
+                  field.id -> DynamoFormat[ID].write(id).toAttributeValue,
+                  field.processorId -> DynamoFormat[ProcessorID]
                     .write(config.processorId)
                     .toAttributeValue
                 ).asJava
               )
-              .withUpdateExpression("SET completedAt=:completedAt, expiresOn=:expiresOn")
+              .withUpdateExpression(
+                s"SET ${field.completedAt}=:completedAt, ${field.expiresOn}=:expiresOn"
+              )
               .withExpressionAttributeValues(
                 Map(
                   ":completedAt" -> instantDynamoFormat.write(now).toAttributeValue,
@@ -234,64 +272,15 @@ object Deduplication {
         } yield ()
       }
 
-      private def acquire(id: ID): F[ProcessStatus] = {
-
-        val nowF = Clock[F].monotonic(TimeUnit.MILLISECONDS)
-        val pollStrategy = config.pollStrategy
-
-        def doIt(
-            startedAt: Long,
-            pollNo: Int,
-            pollDelay: FiniteDuration
-        ): F[ProcessStatus] = {
-          processing(id).flatMap {
-            case ProcessStatus.Started =>
-              val totalDurationF =
-                nowF.map(_ - startedAt).map(FiniteDuration(_, TimeUnit.MILLISECONDS))
-
-              // retry until it is either Completed or Expired
-              totalDurationF
-                .map(_ >= pollStrategy.maxPollDuration)
-                .ifM(
-                  Sync[F].raiseError(new TimeoutException(s"Stop polling after ${pollNo} polls")),
-                  Timer[F].sleep(pollDelay) >> doIt(
-                    startedAt,
-                    pollNo + 1,
-                    config.pollStrategy.nextDelay(pollNo, pollDelay)
-                  )
-                )
-            case status =>
-              Sync[F].point(status)
-          }
-        }
-
-        nowF.flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
+      override def protect[A](id: ID, ifNotSeen: F[A], ifSeen: F[A]): F[A] = {
+        tryProcess(id)
+          .flatMap(_.fold(ifNotSeen, ifSeen))
+          .flatTap(_ => commitProcess(id))
       }
 
-      override def protect[A](id: ID, ifNotProcessed: F[A], ifProcessed: F[A]): F[A] = {
-        protect(id).use {
-          case ProcessStatus.NotStarted | ProcessStatus.Expired => ifNotProcessed
-          case ProcessStatus.Completed => ifProcessed
-          case ProcessStatus.Started =>
-            Sync[F].raiseError(
-              new IllegalStateException(
-                "If the status is just started this point should never be reached"
-              )
-            )
-        }
+      override def protect[A](id: ID, process: F[A]): F[Option[A]] = {
+        protect(id, process.map(_.some), none[A].pure[F])
       }
-
-      override def protect(id: ID): Resource[F, ProcessStatus] =
-        Resource.make(acquire(id)) {
-          case ProcessStatus.NotStarted | ProcessStatus.Expired => processed(id)
-          case ProcessStatus.Completed => ().pure[F]
-          case ProcessStatus.Started =>
-            Sync[F].raiseError(
-              new IllegalStateException(
-                "If the status is just started this point should never be reached"
-              )
-            )
-        }
     }
   }
 }

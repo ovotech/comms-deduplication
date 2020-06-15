@@ -19,6 +19,7 @@ import com.amazonaws.services.dynamodbv2.model.AttributeValue
 
 import model._
 import cats.effect.concurrent.Ref
+import java.util.concurrent.TimeUnit
 
 class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenPropertyChecks {
 
@@ -26,7 +27,9 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
   implicit val contextShift = IO.contextShift(ec)
   implicit val timer: Timer[IO] = IO.timer(ec)
 
-  "Deduplication" should "always process event for the first time" in forAll {
+  behavior of "Deduplication"
+
+  it should "always process event for the first time" in forAll {
     (processorId: UUID, id1: UUID, id2: UUID) =>
 
       val result = deduplicationResource(processorId)
@@ -60,39 +63,16 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
       b shouldBe "processed"
   }
 
-  it should "process event for the first time, ignore other before expiration" in forAll {
-    (processorId: UUID, id: UUID) =>
-
-      val result = deduplicationResource(processorId, 5.seconds)
-        .use { ps =>
-          for {
-            a <- ps.processing(id).map {
-              case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
-              case _ => "processed"
-            }
-            b <- ps.processing(id).map {
-              case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
-              case _ => "processed"
-            }
-          } yield (a, b)
-        }
-        .unsafeRunSync()
-
-      val (a, b) = result
-      a shouldBe "nonProcessed"
-      b shouldBe "processed"
-  }
-
   it should "re-process the event if it failes the first time" in forAll {
     (processorId: UUID, id: UUID) =>
 
-      val result = deduplicationResource(processorId, 5.seconds)
+      val result = deduplicationResource(processorId, 1.seconds)
         .use { ps =>
           for {
             ref <- Ref[IO].of(0)
-            _ <- ps.protect(id, IO.raiseError[Int](new Exception("Expected exception")), ref.set(1)).attempt
-            _ <- ps.protect(id, ref.set(1), ref.set(2))
-            _ <- ps.protect(id, ref.set(3), ref.set(4))
+            _ <- ps.protect(id, IO.raiseError[Int](new Exception("Expected exception"))).attempt
+            _ <- ps.protect(id, ref.set(1))
+            _ <- ps.protect(id, ref.set(3))
             result <- ref.get
           } yield result
         }
@@ -104,68 +84,21 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
   it should "process event for the first time, accept other after expiration" in forAll {
     (processorId: UUID, id: UUID) =>
 
-      val result = deduplicationResource(processorId, 1.seconds)
+      val maxProcessingTime = 1.seconds
+      val result = deduplicationResource(processorId, maxProcessingTime)
         .use { ps =>
           for {
-            a <- ps.processing(id).map {
-              case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
-              case _ => "processed"
-            }
-            _ <- IO.sleep(5.seconds)
-            b <- ps.processing(id).map {
-              case ProcessStatus.NotStarted | ProcessStatus.Expired => "nonProcessed"
-              case _ => "processed"
-            }
-          } yield (a, b)
+            a <- ps.tryProcess(id)
+            _ <- IO.sleep(maxProcessingTime + 1.second)
+            bAndTime <- time(ps.tryProcess(id))
+          } yield (a, bAndTime)
         }
         .unsafeRunSync()
 
-      val (a, b) = result
-      a shouldBe "nonProcessed"
-      b shouldBe "nonProcessed"
-  }
-
-  it should "set startedAt > completedAt when try to process a duplicate" in forAll {
-    (processorId: UUID, id: UUID) =>
-
-      val rs = for {
-        tableName <- tableResource
-        dynamoDb <- dynamoDbR
-        deduplication <- deduplicationResource(tableName, processorId, 5.seconds)
-      } yield (tableName, dynamoDb, deduplication)
-
-      rs.use {
-          case (tableName, dynamoDb, deduplication) =>
-            deduplication.protect(
-              id,
-              IO(note("Processed correctly")),
-              IO.raiseError(new Exception("Impossible to skip the first time"))
-            ) >>
-              deduplication.protect(
-                id,
-                IO.raiseError(new Exception("Impossible to process the second time")),
-                IO(note("Skipped correctly"))
-              ) >>
-              IO(
-                dynamoDb.getItem(
-                  new GetItemRequest()
-                    .withConsistentRead(true)
-                    .withTableName(tableName)
-                    .withKey(
-                      Map(
-                        "id" -> new AttributeValue().withS(id.toString),
-                        "processorId" -> new AttributeValue().withS(processorId.toString())
-                      ).asJava
-                    )
-                )
-              ).map { res =>
-                val startedAt = res.getItem().get("startedAt").getN().toLong
-                val completedAt = res.getItem().get("completedAt").getN().toLong
-
-                startedAt should be > completedAt
-              }
-        }
-        .unsafeRunSync()
+      val (a, (b, bTime)) = result
+      a shouldBe Sample.notSeen
+      b shouldBe Sample.notSeen
+      bTime should be < maxProcessingTime
   }
 
   it should "process only one event out of multiple concurrent events" in forAll(MinSuccessful(1)) {
@@ -216,4 +149,11 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
         )
       )
     } yield deduplication
+
+  def time[F[_]: Sync: Clock, A](fa: F[A]): F[(A, FiniteDuration)] =
+    for {
+      start <- Clock[F].monotonic(TimeUnit.MILLISECONDS)
+      a <- fa
+      end <- Clock[F].monotonic(TimeUnit.MILLISECONDS)
+    } yield (a, (end - start).millis)
 }

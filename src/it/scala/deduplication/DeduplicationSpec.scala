@@ -2,6 +2,7 @@ package com.ovoenergy.comms.deduplication
 
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -20,6 +21,7 @@ import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsyncClientBuilder
 
 import model._
 import Config._
+
 
 class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenPropertyChecks {
 
@@ -63,7 +65,7 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
       b shouldBe "processed"
   }
 
-  it should "re-process the event if it failes the first time" in forAll {
+  it should "re-process the event if it failed the first time" in forAll {
     (processorId: UUID, id: UUID) =>
 
       val result = deduplicationResource(processorId, 1.seconds)
@@ -101,6 +103,26 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
       yTime should be < maxProcessingTime
   }
 
+  it should "timeout process if maxPollingTime < maxProcessingTime" in forAll {
+    (processorId: UUID, id: UUID) =>
+
+      val maxProcessingTime = 15.seconds
+      val maxPollingTime = 1.seconds
+
+      val result = deduplicationResource(processorId, maxProcessingTime, maxPollingTime)
+        .use { ps =>
+          for {
+            _ <- ps.tryStartProcess(id)
+            result <- ps.tryStartProcess(id)
+          } yield result
+        }
+        .attempt
+        .unsafeRunSync()
+
+        result shouldBe a[Left[_, _]]
+        result.left.exists(_.isInstanceOf[TimeoutException]) shouldBe true
+  }
+
   it should "process only one event out of multiple concurrent events" in forAll(MinSuccessful(1)) {
     (processorId: UUID, id: UUID) =>
 
@@ -126,17 +148,19 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
 
   def deduplicationResource(
       processorId: UUID,
-      maxProcessingTime: FiniteDuration = 5.seconds
+      maxProcessingTime: FiniteDuration = 5.seconds,
+      maxPollingTime: FiniteDuration = 15.seconds,
   ): Resource[IO, Deduplication[IO, UUID]] =
     for {
       tableName <- tableResource
-      deduplication <- deduplicationResource(tableName, processorId, maxProcessingTime)
+      deduplication <- deduplicationResource(tableName, processorId, maxProcessingTime, maxPollingTime)
     } yield deduplication
 
   def deduplicationResource(
       tableName: String,
       processorId: UUID,
-      maxProcessingTime: FiniteDuration
+      maxProcessingTime: FiniteDuration,
+      maxPollingTime: FiniteDuration,
   ): Resource[IO, Deduplication[IO, UUID]] =
     for {
       deduplication <- Deduplication.resource[IO, UUID, UUID](
@@ -145,7 +169,7 @@ class DeduplicationSpec extends AnyFlatSpec with Matchers with ScalaCheckDrivenP
           processorId = processorId,
           maxProcessingTime = maxProcessingTime,
           ttl = 1.day,
-          pollStrategy = PollStrategy.backoff(maxDuration = 30.seconds)
+          pollStrategy = PollStrategy.backoff(maxDuration = maxPollingTime)
         )
       )
     } yield deduplication

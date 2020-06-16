@@ -16,9 +16,9 @@ It is able to work across multiple node with the same `processorId`. The persist
 
 ## How to configure it
 
-A `processorId` need to be assigned to each instance of this library. It will univoque identify the processor. If two services have the same `processorId` it likely means they are two instance of the same service.
+A `processorId` need to be assigned to each instance of this library. It will uniquely identify the processor. If two services have the same `processorId` it likely means they are two instances of the same service.
 
-We need to know the max amount of time the process will take (`maxProcessingTime` in the config). Any process that take more than this amount of time will be considered death.
+We need to know the max amount of time the process will take (`maxProcessingTime` in the config). Any process that take more than this amount of time will be considered dead.
 
 ## How does it work
 
@@ -36,11 +36,11 @@ Each time a processor with a given `processorId` attempt to process a signal ide
 
 The `expiresOn` allows to clean up old data and re-run duplicate after some time.
 
-When the librry attemp to start a process, these scenarios can happen:
+When the library attemp to start a process, these scenarios can happen:
 
 1) The signal has never been processed previously (not previous record found)
 2) The signal has been already processed previously (`completedAt` is present)
 3) The signal has timeout processing (`completedAt` is absent and `startedAt` + `processingTime` is in the past)
 4) The signal is stil being processing (`completedAt` is absent and `startedAt` + `processingTime` is in the future)
 
-In cases (1) and (2) the library allow the signal to be processed. In cases (3) the library does not allow the signal to be processed again and (4) the library wait the process to either complete or timeout before taking any decision.
+In cases (1) and (2) the library allows the signal to be processed. In cases (3) the library does not allow the signal to be processed again and (4) the library wait the process to either complete or timeout before taking any decision.

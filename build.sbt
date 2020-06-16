@@ -61,10 +61,9 @@ lazy val deduplication = (project in file("."))
         dep("org.scala-lang.modules")("0.9.1")(
           "scala-java8-compat"
         ) ++
-        dep("org.scanamo")("1.0.0-M11")(
-          "scanamo",
-          "scanamo-cats-effect"
-        ) ++
+        udep("software.amazon.awssdk")("2.13.36")(
+          "dynamodb"
+        )++
         udep("org.slf4j")("1.7.30")(
           "slf4j-api"
         ) ++

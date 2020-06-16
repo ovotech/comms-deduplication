@@ -1,17 +1,27 @@
 package com.ovoenergy.comms.deduplication
 
 import java.time.Instant
-import java.util.concurrent.TimeUnit
-import scala.concurrent.duration._
 
 object model {
+
+  /**
+    * The outcome of starting a process.
+    *
+    * It ould be either New or Duplicate. The New has a markAsComplete member
+    * that should be used to mark the process as complete after it has succeeded
+    */
+  trait Outcome[F[_]]
+  object Outcome {
+    case class Duplicate[F[_]]() extends Outcome[F]
+    case class New[F[_]](markAsComplete: F[Unit]) extends Outcome[F]
+  }
 
   sealed trait ProcessStatus
   object ProcessStatus {
     case object NotStarted extends ProcessStatus
     case object Started extends ProcessStatus
     case object Completed extends ProcessStatus
-    case object Expired extends ProcessStatus
+    case object Timeout extends ProcessStatus
   }
 
   case class Expiration(instant: Instant)
@@ -22,33 +32,4 @@ object model {
       completedAt: Option[Instant],
       expiresOn: Option[Expiration]
   )
-
-  trait PollStrategy {
-    def maxPollDuration: FiniteDuration
-    def initialDelay: FiniteDuration
-    def nextDelay(pollNo: Int, previousDelay: FiniteDuration): FiniteDuration
-  }
-
-  object PollStrategy {
-
-    def linear(
-        delay: FiniteDuration = 50.milliseconds,
-        maxDuration: FiniteDuration = 3.seconds
-    ) = new PollStrategy {
-      def maxPollDuration = maxDuration
-      def initialDelay = delay
-      def nextDelay(pollNo: Int, previousDelay: FiniteDuration) = delay
-    }
-
-    def backoff(
-        baseDelay: FiniteDuration = 50.milliseconds,
-        multiplier: Double = 1.5d,
-        maxDuration: FiniteDuration = 3.seconds
-    ) = new PollStrategy {
-      def maxPollDuration = maxDuration
-      def initialDelay = baseDelay
-      def nextDelay(pollNo: Int, previousDelay: FiniteDuration) =
-        FiniteDuration((previousDelay.toMillis * multiplier).toLong, TimeUnit.MILLISECONDS)
-    }
-  }
 }

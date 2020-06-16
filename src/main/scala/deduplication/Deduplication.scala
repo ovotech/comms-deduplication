@@ -4,7 +4,7 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration._
 import scala.compat.java8.DurationConverters._
 import scala.collection.JavaConverters._
 
@@ -22,49 +22,88 @@ import org.scanamo.error.{DynamoReadError, NoPropertyOfType}
 import model._
 import ScanamoHelpers._
 
+/**
+  *
+  */
 trait Deduplication[F[_], ID] {
 
   /**
-    * Try to acquire a lock on a process
+    * Try to start a process.
     *
-    * Returns a [[ProcessStatus]] instance:
-    *  - [[ProcessStatus.NotStarted]] if the process has not been started yet
-    *  - [[ProcessStatus.Started]] if the process has been started but not completed
-    *  - [[ProcessStatus.Completed]] if the process has been completed
-    *  - [[ProcessStatus.Expired]] if the process has started but has not been completed in time
+    * If the process with the giving id has never started before, this will start a new process and return Some(complete)
+    * If another process with the same id has already completed, this will do nothing and return None
+    * If another process with the same id has already started and timeouted, this will do nothing and return None
+    * If another process with the same id is still running, this will wait until it will complete or timeout
+    *
+    * If markAsComplete fails, the process will likely be duplicated.
+    * If the process takes more time than maxProcessingTime, you may have duplicate if two processes with same ID happen at the same time
+    *
+    * eg
+    * ```
+    * tryStartProcess(id)
+    *   .flatMap {
+    *     case Outcome.New(markAsComplete) =>
+    *       doYourStuff.flatTap(_ => markAsComplete)
+    *     case Outcome.Duplicate() =>
+    *       dontDoYourStuff
+    *   }
+    * ```
+    *
+    * @param id The process id to start
+    * @return An Outcome.New or Outcome.Duplicate. The Outcome.New will contain an effect to complete the just started process.
     */
-  def processing(id: ID): F[ProcessStatus]
+  def tryStartProcess(id: ID): F[Outcome[F]]
 
-  def processed(id: ID): F[Unit]
-
-  def protect[A](id: ID, ifNotProcessed: F[A], ifProcessed: F[A]): F[A]
-
-  def protect(id: ID): Resource[F, ProcessStatus]
+  /**
+    * Do the best effort to ensure a process to be successfully executed only once.
+    *
+    * If the process has already runned successfully before, it will run the [[ifDuplicate]].
+    * Otherwise, it will run the [[ifNew]].
+    *
+    * The return value is either the result of [[ifNew]] or [[ifDuplicate]].
+    *
+    * @param id The id of the process to run.
+    * @param ifNew The effect to run if the process is new.
+    * @param ifDuplicate The effect to run if the process is duplicate.
+    * @return the result of [[ifNew]] or [[ifDuplicate]].
+    */
+  def protect[A](id: ID, ifNew: F[A], ifDuplicate: F[A]): F[A]
 }
 
 object Deduplication {
+
+  private object field {
+    val id = "id"
+    val processorId = "processorId"
+    val startedAt = "startedAt"
+    val completedAt = "completedAt"
+    val expiresOn = "expiresOn"
+  }
+
+  def nowF[F[_]: Functor: Clock] =
+    Clock[F]
+      .realTime(TimeUnit.MILLISECONDS)
+      .map(Instant.ofEpochMilli)
 
   def processStatus[F[_]: Monad: Clock](
       maxProcessingTime: FiniteDuration
   )(p: Process[_, _]): F[ProcessStatus] =
     if (p.completedAt.isDefined) {
-      Monad[F].point(ProcessStatus.Completed)
+      ProcessStatus.Completed.pure[F].widen
     } else {
-      Clock[F]
-        .realTime(TimeUnit.MILLISECONDS)
-        .map(Instant.ofEpochMilli)
+      nowF[F]
         .map { now =>
           /*
            * If the startedAt is:
-           *  - In the past compared to expected finishing time the processed has expired
+           *  - In the past compared to expected finishing time the processed has timeout
            *  - In the future compared to expected finishing time present the process has started but not yet completed
            */
-          val isExpired = p.startedAt
+          val isTimeout = p.startedAt
             .plus(maxProcessingTime.toJava)
             .isBefore(now)
 
-          if (isExpired)
-            ProcessStatus.Expired
+          if (isTimeout)
+            ProcessStatus.Timeout
           else
             ProcessStatus.Started
         }
@@ -95,25 +134,26 @@ object Deduplication {
 
   private implicit def processDynamoFormat[ID: DynamoFormat, ProcessorID: DynamoFormat]
       : DynamoFormat[Process[ID, ProcessorID]] = new DynamoFormat[Process[ID, ProcessorID]] {
+
     def read(av: DynamoValue): Either[DynamoReadError, Process[ID, ProcessorID]] =
       for {
         obj <- av.asObject
           .toRight(NoPropertyOfType("object", av))
           .leftWiden[DynamoReadError]
-        id <- obj.get[ID]("id")
-        processorId <- obj.get[ProcessorID]("processorId")
-        startedAt <- obj.get[Instant]("startedAt")
-        completedAt <- obj.get[Option[Instant]]("completedAt")
-        expiresOn <- obj.get[Option[Expiration]]("completedAt")
+        id <- obj.get[ID](field.id)
+        processorId <- obj.get[ProcessorID](field.processorId)
+        startedAt <- obj.get[Instant](field.startedAt)
+        completedAt <- obj.get[Option[Instant]](field.completedAt)
+        expiresOn <- obj.get[Option[Expiration]](field.expiresOn)
       } yield Process(id, processorId, startedAt, completedAt, expiresOn)
 
     def write(process: Process[ID, ProcessorID]): DynamoValue =
       DynamoObject(
-        "id" -> DynamoFormat[ID].write(process.id),
-        "processorId" -> DynamoFormat[ProcessorID].write(process.processorId),
-        "startedAt" -> DynamoFormat[Instant].write(process.startedAt),
-        "completedAt" -> DynamoFormat[Option[Instant]].write(process.completedAt),
-        "expiresOn" -> DynamoFormat[Option[Expiration]].write(process.expiresOn)
+        field.id -> DynamoFormat[ID].write(process.id),
+        field.processorId -> DynamoFormat[ProcessorID].write(process.processorId),
+        field.startedAt -> DynamoFormat[Instant].write(process.startedAt),
+        field.completedAt -> DynamoFormat[Option[Instant]].write(process.completedAt),
+        field.expiresOn -> DynamoFormat[Option[Expiration]].write(process.expiresOn)
       ).toDynamoValue
   }
 
@@ -133,7 +173,6 @@ object Deduplication {
       client: AmazonDynamoDBAsync
   ): Deduplication[F, ID] = {
 
-    // TODO Shift back
     def update(request: UpdateItemRequest) =
       Async[F]
         .async[UpdateItemResult] { cb =>
@@ -161,19 +200,23 @@ object Deduplication {
         now: Instant
     ): F[Option[Process[ID, ProcessorID]]] = {
 
+      val startedAtVar = ":startedAt"
+
       val result = update(
         new UpdateItemRequest()
           .withTableName(config.tableName.value)
           .withKey(
             Map(
-              "id" -> DynamoFormat[ID].write(id).toAttributeValue,
-              "processorId" -> DynamoFormat[ProcessorID].write(processorId).toAttributeValue
+              field.id -> DynamoFormat[ID].write(id).toAttributeValue,
+              field.processorId -> DynamoFormat[ProcessorID].write(processorId).toAttributeValue
             ).asJava
           )
-          .withUpdateExpression("SET startedAt=:startedAt")
+          .withUpdateExpression(
+            s"SET ${field.startedAt} = if_not_exists(${field.startedAt}, ${startedAtVar})"
+          )
           .withExpressionAttributeValues(
             Map(
-              ":startedAt" -> instantDynamoFormat.write(now).toAttributeValue
+              startedAtVar -> instantDynamoFormat.write(now).toAttributeValue
             ).asJava
           )
           .withReturnValues(ReturnValue.ALL_OLD)
@@ -193,65 +236,57 @@ object Deduplication {
 
     new Deduplication[F, ID] {
 
-      override def processing(id: ID): F[ProcessStatus] = {
-        for {
-          now <- Timer[F].clock
-            .realTime(TimeUnit.MILLISECONDS)
-            .map(Instant.ofEpochMilli)
-          processOpt <- startProcessingUpdate(id, config.processorId, now)
-          status <- processOpt
-            .traverse(processStatus[F](config.maxProcessingTime))
-            .map(_.getOrElse(ProcessStatus.NotStarted))
-        } yield status
-      }
+      override def tryStartProcess(id: ID): F[Outcome[F]] = {
 
-      override def processed(id: ID): F[Unit] = {
-        for {
-          now <- Timer[F].clock
-            .realTime(TimeUnit.MILLISECONDS)
-            .map(Instant.ofEpochMilli)
-          _ <- update(
-            new UpdateItemRequest()
-              .withTableName(config.tableName.value)
-              .withKey(
-                Map(
-                  "id" -> DynamoFormat[ID].write(id).toAttributeValue,
-                  "processorId" -> DynamoFormat[ProcessorID]
-                    .write(config.processorId)
-                    .toAttributeValue
-                ).asJava
-              )
-              .withUpdateExpression("SET completedAt=:completedAt, expiresOn=:expiresOn")
-              .withExpressionAttributeValues(
-                Map(
-                  ":completedAt" -> instantDynamoFormat.write(now).toAttributeValue,
-                  ":expiresOn" -> new AttributeValue()
-                    .withN(now.plus(config.ttl.toJava).getEpochSecond().toString)
-                ).asJava
-              )
-              .withReturnValues(ReturnValue.NONE)
-          )
-        } yield ()
-      }
+        val completeProcess: F[Unit] = {
 
-      private def acquire(id: ID): F[ProcessStatus] = {
+          val completedAtVar = ":completedAt"
+          val expiresOnVar = ":expiresOn"
 
-        val nowF = Clock[F].monotonic(TimeUnit.MILLISECONDS)
+          for {
+            now <- nowF[F]
+            _ <- update(
+              new UpdateItemRequest()
+                .withTableName(config.tableName.value)
+                .withKey(
+                  Map(
+                    field.id -> DynamoFormat[ID].write(id).toAttributeValue,
+                    field.processorId -> DynamoFormat[ProcessorID]
+                      .write(config.processorId)
+                      .toAttributeValue
+                  ).asJava
+                )
+                .withUpdateExpression(
+                  s"SET ${field.completedAt}=${completedAtVar}, ${field.expiresOn}=${expiresOnVar}"
+                )
+                .withExpressionAttributeValues(
+                  Map(
+                    completedAtVar -> instantDynamoFormat.write(now).toAttributeValue,
+                    expiresOnVar -> new AttributeValue()
+                      .withN(now.plus(config.ttl.toJava).getEpochSecond().toString)
+                  ).asJava
+                )
+                .withReturnValues(ReturnValue.NONE)
+            )
+          } yield ()
+        }
+
         val pollStrategy = config.pollStrategy
 
         def doIt(
-            startedAt: Long,
+            startedAt: Instant,
             pollNo: Int,
             pollDelay: FiniteDuration
-        ): F[ProcessStatus] = {
-          processing(id).flatMap {
-            case ProcessStatus.Started =>
-              val totalDurationF =
-                nowF.map(_ - startedAt).map(FiniteDuration(_, TimeUnit.MILLISECONDS))
+        ): F[Outcome[F]] = {
 
-              // retry until it is either Completed or Expired
+          def nextStep(ps: ProcessStatus): F[Outcome[F]] = ps match {
+            case ProcessStatus.Started =>
+              val totalDurationF = nowF[F]
+                .map(now => (now.toEpochMilli - startedAt.toEpochMilli).milliseconds)
+
+              // retry until it is either Completed or Timeout
               totalDurationF
-                .map(_ >= pollStrategy.maxPollDuration)
+                .map(td => td >= pollStrategy.maxPollDuration)
                 .ifM(
                   Sync[F].raiseError(new TimeoutException(s"Stop polling after ${pollNo} polls")),
                   Timer[F].sleep(pollDelay) >> doIt(
@@ -260,38 +295,35 @@ object Deduplication {
                     config.pollStrategy.nextDelay(pollNo, pollDelay)
                   )
                 )
-            case status =>
-              Sync[F].point(status)
+            case ProcessStatus.NotStarted | ProcessStatus.Timeout =>
+              Outcome.New(completeProcess).pure[F].widen[Outcome[F]]
+
+            case ProcessStatus.Completed =>
+              Monad[F].point(Outcome.Duplicate())
           }
+
+          for {
+            now <- nowF[F]
+            processOpt <- startProcessingUpdate(id, config.processorId, now)
+            status <- processOpt
+              .traverse(processStatus[F](config.maxProcessingTime))
+              .map(_.getOrElse(ProcessStatus.NotStarted))
+            sample <- nextStep(status)
+          } yield sample
         }
 
-        nowF.flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
+        nowF[F].flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
       }
 
-      override def protect[A](id: ID, ifNotProcessed: F[A], ifProcessed: F[A]): F[A] = {
-        protect(id).use {
-          case ProcessStatus.NotStarted | ProcessStatus.Expired => ifNotProcessed
-          case ProcessStatus.Completed => ifProcessed
-          case ProcessStatus.Started =>
-            Sync[F].raiseError(
-              new IllegalStateException(
-                "If the status is just started this point should never be reached"
-              )
-            )
-        }
+      override def protect[A](id: ID, ifNotSeen: F[A], ifSeen: F[A]): F[A] = {
+        tryStartProcess(id)
+          .flatMap {
+            case Outcome.New(markAsComplete) =>
+              ifNotSeen.flatTap(_ => markAsComplete)
+            case Outcome.Duplicate() =>
+              ifSeen
+          }
       }
-
-      override def protect(id: ID): Resource[F, ProcessStatus] =
-        Resource.make(acquire(id)) {
-          case ProcessStatus.NotStarted | ProcessStatus.Expired => processed(id)
-          case ProcessStatus.Completed => ().pure[F]
-          case ProcessStatus.Started =>
-            Sync[F].raiseError(
-              new IllegalStateException(
-                "If the status is just started this point should never be reached"
-              )
-            )
-        }
     }
   }
 }

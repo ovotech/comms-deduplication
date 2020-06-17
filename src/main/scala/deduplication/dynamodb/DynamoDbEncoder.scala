@@ -1,6 +1,7 @@
 package com.ovoenergy.comms.deduplication
 package dynamodb
 
+import java.{util => ju}
 import java.time.Instant
 
 import cats._
@@ -41,6 +42,9 @@ object DynamoDbEncoder {
 
   implicit val dynamoEncoderForString: DynamoDbEncoder[String] =
     DynamoDbEncoder.instance(str => AttributeValue.builder().s(str).build())
+
+  implicit val dynamoEncoderForUUID: DynamoDbEncoder[ju.UUID] =
+    DynamoDbEncoder[String].contramap(_.toString)
 
   implicit val dynamoEncoderForLong: DynamoDbEncoder[Long] =
     DynamoDbEncoder.instance(long => AttributeValue.builder().n(long.toString).build())

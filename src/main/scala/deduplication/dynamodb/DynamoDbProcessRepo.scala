@@ -17,13 +17,6 @@ import software.amazon.awssdk.services.dynamodb._
 import com.ovoenergy.comms.deduplication.model._
 
 object DynamoDbProcessRepo {
-
-  case class Config(tableName: Config.TableName, modifyClientBuilder: DynamoDbAsyncClientBuilder => DynamoDbAsyncClientBuilder = identity)
-
-  object Config {
-    case class TableName(value: String)
-  }
-
   implicit class RichAttributeValue(av: AttributeValue) {
     def get[A: DynamoDbDecoder](key: String): Either[DecoderFailure, A] =
       for {
@@ -52,15 +45,18 @@ object DynamoDbProcessRepo {
   }
 
   def resource[F[_]: Async: ContextShift: Timer, ID: DynamoDbDecoder: DynamoDbEncoder, ProcessorID: DynamoDbDecoder: DynamoDbEncoder](
-    config: Config,
+      config: DynamoDbConfig
   ): Resource[F, ProcessRepo[F, ID, ProcessorID]] = {
-    Resource.make(Sync[F].delay(config.modifyClientBuilder(DynamoDbAsyncClient.builder()).build())){client => 
-      Sync[F].delay(client.close())
-    }.map(client => apply(config, client))
+    Resource
+      .make(Sync[F].delay(config.modifyClientBuilder(DynamoDbAsyncClient.builder()).build())) {
+        client =>
+          Sync[F].delay(client.close())
+      }
+      .map(client => apply(config, client))
   }
 
   def apply[F[_]: Async: ContextShift: Timer, ID: DynamoDbDecoder: DynamoDbEncoder, ProcessorID: DynamoDbDecoder: DynamoDbEncoder](
-      config: Config,
+      config: DynamoDbConfig,
       client: DynamoDbAsyncClient
   ): ProcessRepo[F, ID, ProcessorID] = {
 
@@ -135,7 +131,7 @@ object DynamoDbProcessRepo {
           id: ID,
           processorId: ProcessorID,
           now: Instant,
-          ttl: FiniteDuration,
+          ttl: FiniteDuration
       ): F[Unit] = {
         val completedAtVar = ":completedAt"
         val expiresOnVar = ":expiresOn"

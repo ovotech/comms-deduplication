@@ -2,10 +2,12 @@ package com.ovoenergy.comms.deduplication
 package dynamodb
 
 import java.time.Instant
+import java.util.concurrent.CompletableFuture
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration.FiniteDuration
 import scala.compat.java8.DurationConverters._
+import scala.compat.java8.FunctionConverters._
 
 import cats.implicits._
 import cats.effect._
@@ -17,6 +19,18 @@ import software.amazon.awssdk.services.dynamodb._
 import com.ovoenergy.comms.deduplication.model._
 
 object DynamoDbProcessRepo {
+
+  def fromCompletableFuture[F[_]: Concurrent, A](f: () => CompletableFuture[A]): F[A] =
+    Concurrent[F].cancelable[A] { cb =>
+
+      val future = f()
+      future.whenComplete { (ok, err) =>
+        cb(Option(err).toLeft(ok))
+      }
+
+      Sync[F].delay(future.cancel(true)).void
+    }
+
   implicit class RichAttributeValue(av: AttributeValue) {
     def get[A: DynamoDbDecoder](key: String): Either[DecoderFailure, A] =
       for {
@@ -44,7 +58,7 @@ object DynamoDbProcessRepo {
     val expiresOn = "expiresOn"
   }
 
-  def resource[F[_]: Async: ContextShift: Timer, ID: DynamoDbDecoder: DynamoDbEncoder, ProcessorID: DynamoDbDecoder: DynamoDbEncoder](
+  def resource[F[_]: Concurrent: ContextShift: Timer, ID: DynamoDbDecoder: DynamoDbEncoder, ProcessorID: DynamoDbDecoder: DynamoDbEncoder](
       config: DynamoDbConfig
   ): Resource[F, ProcessRepo[F, ID, ProcessorID]] = {
     Resource
@@ -55,21 +69,15 @@ object DynamoDbProcessRepo {
       .map(client => apply(config, client))
   }
 
-  def apply[F[_]: Async: ContextShift: Timer, ID: DynamoDbDecoder: DynamoDbEncoder, ProcessorID: DynamoDbDecoder: DynamoDbEncoder](
+  def apply[F[_]: Concurrent: ContextShift: Timer, ID: DynamoDbDecoder: DynamoDbEncoder, ProcessorID: DynamoDbDecoder: DynamoDbEncoder](
       config: DynamoDbConfig,
       client: DynamoDbAsyncClient
   ): ProcessRepo[F, ID, ProcessorID] = {
 
     def update(request: UpdateItemRequest) = {
-      Async[F]
-        .async[UpdateItemResponse] { cb =>
-          client.updateItem(request).handle { (ok, error) =>
-            cb(Option(error).toLeft(ok))
-          }
-
-          ()
-        }
-        .guarantee(ContextShift[F].shift)
+      fromCompletableFuture[F, UpdateItemResponse] { () =>
+        client.updateItem(request)
+      }.guarantee(ContextShift[F].shift)
     }
 
     def readProcess(

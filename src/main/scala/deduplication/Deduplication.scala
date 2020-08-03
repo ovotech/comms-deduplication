@@ -23,9 +23,10 @@ object Deduplication {
       .realTime(TimeUnit.MILLISECONDS)
       .map(Instant.ofEpochMilli)
 
-  def processStatus[F[_]: Monad: Clock](
-      maxProcessingTime: FiniteDuration
-  )(p: Process[_, _]): F[ProcessStatus] = nowF[F].map { now =>
+  def processStatus(
+      maxProcessingTime: FiniteDuration,
+      now: Instant
+  )(p: Process[_, _]): ProcessStatus = {
 
     val isCompleted =
       p.completedAt.isDefined
@@ -38,7 +39,7 @@ object Deduplication {
       .plus(maxProcessingTime.toJava)
       .isBefore(now)
 
-    if (isCompleted && isExpired) {
+    if (isExpired) {
       ProcessStatus.Expired
     } else if (isCompleted) {
       ProcessStatus.Completed
@@ -153,9 +154,10 @@ class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
       for {
         now <- nowF[F]
         processOpt <- repo.startProcessingUpdate(id, config.processorId, now)
-        status <- processOpt
-          .traverse(processStatus[F](config.maxProcessingTime))
-          .map(_.getOrElse(ProcessStatus.NotStarted))
+        status = processOpt
+          .fold[ProcessStatus](ProcessStatus.NotStarted) { p =>
+            processStatus(config.maxProcessingTime, now)(p)
+          }
         sample <- nextStep(status)
       } yield sample
     }

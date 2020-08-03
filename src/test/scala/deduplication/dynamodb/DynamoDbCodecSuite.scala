@@ -13,13 +13,9 @@ import org.scalacheck.Gen
 import org.scalacheck.Arbitrary
 import org.scalacheck.Prop._
 
+import Generators._
+
 class DynamoDbCodecSuite extends munit.ScalaCheckSuite {
-
-  implicit val genForInstant: Gen[Instant] = for {
-    ms <- Gen.posNum[Long]
-  } yield Instant.ofEpochMilli(ms)
-
-  implicit def arbForGen[A](implicit gen: Gen[A]): Arbitrary[A] = Arbitrary(gen)
 
   checkEncode[String](str => AttributeValue.builder().s(str).build())
   checkEncodeDecode[String]

@@ -69,6 +69,7 @@ lazy val deduplication = (project in file("."))
       "io.chrisdavenport" %% "log4cats-core" % log4CatsVersion,
       "io.chrisdavenport" %% "log4cats-slf4j" % log4CatsVersion,
       "org.slf4j" % "slf4j-api" % slf4jVersion,
+      "org.typelevel" %% "cats-effect-laws" % catsEffectVersion % Test,
       "org.slf4j" % "jcl-over-slf4j" % slf4jVersion % IntegrationTest,
       "org.scalameta" %% "munit" % munitVersion % s"${Test};${IntegrationTest}",
       "org.scalameta" %% "munit-scalacheck" % munitVersion % s"${Test};${IntegrationTest}",

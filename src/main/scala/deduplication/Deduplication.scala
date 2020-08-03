@@ -68,10 +68,10 @@ class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
   /**
     * Try to start a process.
     *
-    * If the process with the giving id has never started before, this will start a new process and return Some(complete)
-    * If another process with the same id has already completed, this will do nothing and return None
-    * If another process with the same id has already started and timeouted, this will do nothing and return None
-    * If another process with the same id is still running, this will wait until it will complete or timeout
+    * If the process with the giving id has never started before, this will start a new process and return Outcome.New
+    * If another process with the same id has already completed, this will do nothing and return Outcome.Duplicate
+    * If another process with the same id has already started and timeouted, this will start a new process and return Outcome.New
+    * If another process with the same id is still running, this will wait until it will complete or timeout and return Outcome.Duplicate or Outcome.New
     *
     * If markAsComplete fails, the process will likely be duplicated.
     * If the process takes more time than maxProcessingTime, you may have duplicate if two processes with same ID happen at the same time

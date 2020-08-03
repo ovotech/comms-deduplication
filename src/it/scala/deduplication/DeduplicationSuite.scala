@@ -21,7 +21,7 @@ import dynamodb.DynamoDbProcessRepo
 import dynamodb.DynamoDbConfig
 import org.scalacheck.Arbitrary
 
-class DeduplicationSpec extends FunSuite {
+class DeduplicationSuite extends FunSuite {
 
   implicit val ec = ExecutionContext.global
   implicit val contextShift = IO.contextShift(ec)

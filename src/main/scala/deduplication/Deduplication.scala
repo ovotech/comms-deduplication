@@ -108,29 +108,32 @@ class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
           val totalDurationF = nowF[F]
             .map(now => (now.toEpochMilli - startedAt.toEpochMilli).milliseconds)
 
+          val stopRetry = logger.warn(
+            s"Process still running, stop retry-ing ${logContext}"
+          ) >> Sync[F]
+            .raiseError[Outcome[F]](new TimeoutException(s"Stop polling after ${pollNo} polls"))
+
+          val retry = logger.debug(
+            s"Process still running, retry-ing ${logContext}"
+          ) >>
+            Timer[F].sleep(pollDelay) >>
+            doIt(
+              startedAt,
+              pollNo + 1,
+              config.pollStrategy.nextDelay(pollNo, pollDelay)
+            )
+
           // retry until it is either Completed or Timeout
           totalDurationF
             .map(td => td >= pollStrategy.maxPollDuration)
-            .ifM(
-              logger.warn(
-                s"Process still running, stop retry-ing ${logContext}"
-              ) >> Sync[F].raiseError(new TimeoutException(s"Stop polling after ${pollNo} polls")),
-              logger.debug(
-                s"Process still running, retry-ing ${logContext}"
-              ) >>
-                Timer[F].sleep(pollDelay) >>
-                doIt(
-                  startedAt,
-                  pollNo + 1,
-                  config.pollStrategy.nextDelay(pollNo, pollDelay)
-                )
-            )
+            .ifM(stopRetry, retry)
+
         case ProcessStatus.NotStarted | ProcessStatus.Timeout | ProcessStatus.Expired =>
           logger
             .debug(
               s"Process status is ${ps}, starting now ${logContext}"
             )
-            .map { _ =>
+            .as {
               Outcome.New(
                 nowF[F].flatMap { now =>
                   repo.completeProcess(id, config.processorId, now, config.ttl).flatTap { _ =>

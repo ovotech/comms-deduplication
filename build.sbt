@@ -74,7 +74,7 @@ lazy val deduplication = (project in file("."))
         Seq(
           "org.scalatest" %% "scalatest" % "3.2.1",
           "org.scalacheck" %% "scalacheck" % "1.14.3",
-          "org.scalatestplus" %% "scalacheck-1-14" % "3.1.2.0",
+          "org.scalatestplus" %% "scalacheck-1-14" % "3.1.3.0",
           "ch.qos.logback" % "logback-classic" % "1.2.3"
         ).map(_ % IntegrationTest)
   )

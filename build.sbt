@@ -72,7 +72,7 @@ lazy val deduplication = (project in file("."))
           "jcl-over-slf4j"
         ).map(_ % IntegrationTest) ++
         Seq(
-          "org.scalatest" %% "scalatest" % "3.2.1",
+          "org.scalatest" %% "scalatest" % "3.2.2",
           "org.scalacheck" %% "scalacheck" % "1.14.3",
           "org.scalatestplus" %% "scalacheck-1-14" % "3.1.2.0",
           "ch.qos.logback" % "logback-classic" % "1.2.3"

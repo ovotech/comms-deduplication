@@ -99,7 +99,6 @@ class DeduplicationSuite extends FunSuite {
               expiresOn = None
             ).some
           }
-
         }
       },
       Config(
@@ -119,4 +118,129 @@ class DeduplicationSuite extends FunSuite {
       }
   }
 
+  test(
+    "tryStartProcess should return New when another process with the same Id has never completed and expired"
+  ) {
+
+    val processId = given[UUID]
+    val processorId = given[UUID]
+
+    val deduplication = Deduplication[IO, UUID, UUID](
+      new MockProcessRepo {
+        override def startProcessingUpdate(
+            id: UUID,
+            processorId: ju.UUID,
+            now: Instant
+        ): IO[Option[Process[UUID, UUID]]] = {
+          Deduplication.nowF[IO].map { now =>
+            Process(
+              id = id,
+              processorId = processorId,
+              startedAt = now.minusMillis(750),
+              completedAt = None,
+              expiresOn = Expiration(now.minusMillis(250)).some
+            ).some
+          }
+        }
+      },
+      Config(
+        processorId = processorId,
+        maxProcessingTime = 5.minutes,
+        ttl = 30.days,
+        pollStrategy = PollStrategy.linear()
+      )
+    )
+
+    deduplication
+      .flatMap { deduplication =>
+        deduplication.tryStartProcess(processId)
+      }
+      .map { outcome =>
+        assert(outcome.isInstanceOf[Outcome.New[IO]], clue(outcome))
+      }
+  }
+
+  test(
+    "tryStartProcess should return New when another process with the same Id has completed and expired"
+  ) {
+
+    val processId = given[UUID]
+    val processorId = given[UUID]
+
+    val deduplication = Deduplication[IO, UUID, UUID](
+      new MockProcessRepo {
+        override def startProcessingUpdate(
+            id: UUID,
+            processorId: ju.UUID,
+            now: Instant
+        ): IO[Option[Process[UUID, UUID]]] = {
+          Deduplication.nowF[IO].map { now =>
+            Process(
+              id = id,
+              processorId = processorId,
+              startedAt = now.minusMillis(750),
+              completedAt = now.minusMillis(500).some,
+              expiresOn = Expiration(now.minusMillis(250)).some
+            ).some
+          }
+        }
+      },
+      Config(
+        processorId = processorId,
+        maxProcessingTime = 5.minutes,
+        ttl = 30.days,
+        pollStrategy = PollStrategy.linear()
+      )
+    )
+
+    deduplication
+      .flatMap { deduplication =>
+        deduplication.tryStartProcess(processId)
+      }
+      .map { outcome =>
+        assert(outcome.isInstanceOf[Outcome.New[IO]], clue(outcome))
+      }
+  }
+
+  test(
+    "tryStartProcess should return New when another process with the same Id has timeout"
+  ) {
+
+    val processId = given[UUID]
+    val processorId = given[UUID]
+
+    val deduplication = Deduplication[IO, UUID, UUID](
+      new MockProcessRepo {
+        override def startProcessingUpdate(
+            id: UUID,
+            processorId: ju.UUID,
+            now: Instant
+        ): IO[Option[Process[UUID, UUID]]] = {
+          Deduplication.nowF[IO].map { now =>
+            Process(
+              id = id,
+              processorId = processorId,
+              startedAt = now.minusSeconds(300),
+              completedAt = None,
+              expiresOn = None
+            ).some
+          }
+        }
+      },
+      Config(
+        processorId = processorId,
+        maxProcessingTime = 100.seconds,
+        ttl = 30.days,
+        pollStrategy = PollStrategy.linear()
+      )
+    )
+
+    deduplication
+      .flatMap { deduplication =>
+        deduplication.tryStartProcess(processId)
+      }
+      .map { outcome =>
+        assert(outcome.isInstanceOf[Outcome.New[IO]], clue(outcome))
+      }
+  }
 }

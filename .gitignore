@@ -21,9 +21,9 @@ project/plugins/project/
 # Metals
 .metals/
 .bloop/
-project/metals.sbt
+metals.sbt
 
 #Mac
 .DS_Store
 
-.init-env.sh
+.vscode/

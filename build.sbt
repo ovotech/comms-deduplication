@@ -1,3 +1,12 @@
+val catsVersion = "2.1.1"
+val catsEffectVersion = "2.1.1"
+val slf4jVersion = "1.7.30"
+val scalaJava8CompatVersion = "0.9.1"
+val awsSdkVersion = "2.13.36"
+val log4CatsVersion = "1.1.1"
+val munitVersion = "0.7.9"
+val logBackVersion = "1.2.3"
+
 lazy val deduplication = (project in file("."))
   .enablePlugins(BuildInfoPlugin)
   .configs(IntegrationTest)
@@ -7,11 +16,12 @@ lazy val deduplication = (project in file("."))
     organizationHomepage := Some(url("http://www.ovoenergy.com")),
     licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
     scalaVersion := "2.13.1",
-    crossScalaVersions += "2.12.10",
+    crossScalaVersions += "2.12.11",
     scalafmtOnCompile := true,
     scalacOptions -= "-Xfatal-warnings", // enable all options from sbt-tpolecat except fatal warnings
     initialCommands := s"import com.ovoenergy.comms.deduplication._",
     javacOptions ++= Seq("-Xlint:unchecked", "-Xlint:deprecation"),
+    testFrameworks += new TestFramework("munit.Framework"),
     addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.11.0" cross CrossVersion.full),
     scmInfo := Some(
       ScmInfo(
@@ -51,33 +61,18 @@ lazy val deduplication = (project in file("."))
     releaseEarlyWith := BintrayPublisher,
     releaseEarlyEnableSyncToMaven := false,
     releaseEarlyNoGpg := true,
-    libraryDependencies ++=
-      dep("org.typelevel")("2.1.1")(
-        "cats-core"
-      ) ++
-        dep("org.typelevel")("2.1.1")(
-          "cats-effect"
-        ) ++
-        dep("org.scala-lang.modules")("0.9.1")(
-          "scala-java8-compat"
-        ) ++
-        dep("org.scanamo")("1.0.0-M11")(
-          "scanamo",
-          "scanamo-cats-effect"
-        ) ++
-        udep("org.slf4j")("1.7.30")(
-          "slf4j-api"
-        ) ++
-        udep("org.slf4j")("1.7.30")(
-          "jcl-over-slf4j"
-        ).map(_ % IntegrationTest) ++
-        Seq(
-          "org.scalatest" %% "scalatest" % "3.2.2",
-          "org.scalacheck" %% "scalacheck" % "1.14.3",
-          "org.scalatestplus" %% "scalacheck-1-14" % "3.1.2.0",
-          "ch.qos.logback" % "logback-classic" % "1.2.3"
-        ).map(_ % IntegrationTest)
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "cats-core" % catsVersion,
+      "org.typelevel" %% "cats-effect" % catsEffectVersion,
+      "org.scala-lang.modules" %% "scala-java8-compat" % scalaJava8CompatVersion,
+      "software.amazon.awssdk" % "dynamodb" % awsSdkVersion,
+      "io.chrisdavenport" %% "log4cats-core" % log4CatsVersion,
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4CatsVersion,
+      "org.slf4j" % "slf4j-api" % slf4jVersion,
+      "org.typelevel" %% "cats-effect-laws" % catsEffectVersion % Test,
+      "org.slf4j" % "jcl-over-slf4j" % slf4jVersion % IntegrationTest,
+      "org.scalameta" %% "munit" % munitVersion % s"${Test};${IntegrationTest}",
+      "org.scalameta" %% "munit-scalacheck" % munitVersion % s"${Test};${IntegrationTest}",
+      "ch.qos.logback" % "logback-classic" % logBackVersion % s"${Test};${IntegrationTest}",
+    )
   )
-
-def dep(org: String)(version: String)(libs: String*) = libs.map(org %% _ % version)
-def udep(org: String)(version: String)(libs: String*) = libs.map(org % _ % version)

@@ -20,7 +20,6 @@ import Config._
   * @param pollStrategy
   */
 case class Config[ProcessorID](
-    tableName: TableName,
     processorId: ProcessorID,
     maxProcessingTime: FiniteDuration,
     ttl: FiniteDuration,
@@ -28,7 +27,6 @@ case class Config[ProcessorID](
 )
 
 object Config {
-  case class TableName(value: String)
 
   trait PollStrategy {
     def maxPollDuration: FiniteDuration

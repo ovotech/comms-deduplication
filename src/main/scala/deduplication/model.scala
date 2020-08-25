@@ -19,9 +19,10 @@ object model {
   sealed trait ProcessStatus
   object ProcessStatus {
     case object NotStarted extends ProcessStatus
-    case object Started extends ProcessStatus
+    case object Running extends ProcessStatus
     case object Completed extends ProcessStatus
     case object Timeout extends ProcessStatus
+    case object Expired extends ProcessStatus
   }
 
   case class Expiration(instant: Instant)

@@ -4,7 +4,7 @@ val slf4jVersion = "1.7.30"
 val scalaJava8CompatVersion = "0.9.1"
 val awsSdkVersion = "2.15.1"
 val log4CatsVersion = "1.1.1"
-val munitVersion = "0.7.12"
+val munitVersion = "0.7.13"
 val logBackVersion = "1.2.3"
 
 lazy val deduplication = (project in file("."))

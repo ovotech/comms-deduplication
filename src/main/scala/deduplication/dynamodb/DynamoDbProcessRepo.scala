@@ -50,10 +50,11 @@ object DynamoDbProcessRepo {
         .map(Expiration(_))
     }
 
-  private object field {
+  object field {
     val id = "id"
     val processorId = "processorId"
     val startedAt = "startedAt"
+    val attempts = "attempts"
     val completedAt = "completedAt"
     val expiresOn = "expiresOn"
   }
@@ -117,7 +118,7 @@ object DynamoDbProcessRepo {
             ).asJava
           )
           .updateExpression(
-            s"SET ${field.startedAt} = if_not_exists(${field.startedAt}, ${startedAtVar})"
+            s"SET ${field.startedAt} = ${startedAtVar}"
           )
           .expressionAttributeValues(
             Map(

@@ -14,6 +14,9 @@ object model {
   object Outcome {
     case class Duplicate[F[_]]() extends Outcome[F]
     case class New[F[_]](markAsComplete: F[Unit]) extends Outcome[F]
+
+    def neu[F[_]](markAsComplete: F[Unit]): Outcome[F] = New(markAsComplete)
+    def duplicate[F[_]]: Outcome[F] = Duplicate()
   }
 
   sealed trait ProcessStatus

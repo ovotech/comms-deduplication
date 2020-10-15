@@ -155,8 +155,8 @@ class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
       }
 
       for {
+        processOpt <- repo.startProcessingUpdate(id, config.processorId, startedAt)
         now <- nowF[F]
-        processOpt <- repo.startProcessingUpdate(id, config.processorId, now)
         status = processOpt
           .fold[ProcessStatus](ProcessStatus.NotStarted) { p =>
             processStatus(config.maxProcessingTime, now)(p)
@@ -164,6 +164,53 @@ class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
         sample <- nextStep(status)
       } yield sample
     }
+
+    /* 1 - Write the process to the DB
+     * 2 - The process does not exist -> start
+     *     The process is completed but is expired -> start
+     *     The process is completed -> skip
+     *     The process is not completed and timeout (now - previous.startedAt > maxProcessingTime) -> start
+     *     The process is not completed neither timeout -> retry in n millis
+     */
+
+    def start: F[Outcome[F]] = Outcome.neu(
+        nowF[F].flatMap { now =>
+          repo.completeProcess(id, config.processorId, now, config.ttl).flatTap { _ =>
+            logger.debug(
+              s"Process marked as completed ..." // TODO log stuff
+            )
+          }
+        }
+      ).pure[F]
+
+    def skip: F[Outcome[F]] = Outcome.duplicate[F].pure[F]
+
+    def f(
+      startAt: Instant, 
+      pollNo: Int,
+      pollDelay: FiniteDuration,
+      firstProcess: Option[Process[ID, ProcessorID]]
+    ): F[Outcome[F]] = {
+
+      for {
+        optPrevProcess <- repo.startProcessingUpdate(id, config.processorId, startAt)
+        now <- nowF[F]
+        outcome <- {
+          optPrevProcess match {
+            case None => start
+            case Some(p) if p.completedAt.isDefined && p.expiresOn.exists(_.instant.isBefore(now)) => start
+            case Some(p) if p.completedAt.isDefined => skip
+            case Some(p) if firstProcess.getOrElse(p).startedAt.plusMillis(config.maxProcessingTime.toMillis).isBefore(now) => start
+            case Some(p) if (now.toEpochMilli - startAt.toEpochMilli).milliseconds <= pollStrategy.maxPollDuration => {
+              Timer[F].sleep(pollDelay) >> f(startAt, pollNo + 1, pollStrategy.nextDelay(pollNo, pollDelay), firstProcess.getOrElse(p).some)
+            }
+            case Some(_) => Sync[F]
+              .raiseError[Outcome[F]](new TimeoutException(s"Stop polling after ${pollNo} polls"))
+          }
+        }
+      } yield outcome
+    }
+    
 
     nowF[F].flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
   }

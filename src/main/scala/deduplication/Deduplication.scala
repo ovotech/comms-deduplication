@@ -68,6 +68,29 @@ class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
 ) {
 
   /**
+    * Do the best effort to ensure a process to be successfully executed only once.
+    *
+    * If the process has already runned successfully before, it will run the [[ifDuplicate]].
+    * Otherwise, it will run the [[ifNew]].
+    *
+    * The return value is either the result of [[ifNew]] or [[ifDuplicate]].
+    *
+    * @param id The id of the process to run.
+    * @param ifNew The effect to run if the process is new.
+    * @param ifDuplicate The effect to run if the process is duplicate.
+    * @return the result of [[ifNew]] or [[ifDuplicate]].
+    */
+  def protect[A](id: ID, ifNew: F[A], ifDuplicate: F[A]): F[A] = {
+    tryStartProcess(id)
+      .flatMap {
+        case Outcome.New(markAsComplete) =>
+          ifNew.flatTap(_ => markAsComplete)
+        case Outcome.Duplicate() =>
+          ifDuplicate
+      }
+  }
+
+  /**
     * Try to start a process.
     *
     * If the process with the giving id has never started before, this will start a new process and return Outcome.New
@@ -104,21 +127,6 @@ class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
      *     The process is not completed neither timeout -> retry in n millis
      */
 
-    def start: F[Outcome[F]] =
-      Outcome
-        .neu(
-          nowF[F].flatMap { now =>
-            repo.completeProcess(id, config.processorId, now, config.ttl).flatTap { _ =>
-              logger.debug(
-                s"Process marked as completed ..." // TODO log stuff
-              )
-            }
-          }
-        )
-        .pure[F]
-
-    def skip: F[Outcome[F]] = Outcome.duplicate[F].pure[F]
-
     def loop(
         startedAt: Instant,
         pollNo: Int,
@@ -139,13 +147,17 @@ class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
         )
         outcome <- optStatus match {
           case None =>
-            logger.debug(s"No previous process found. Starting now. ${logContext}") >> start
+            logger.debug(s"No previous process found. Starting now. ${logContext}") >>
+              startProcess(id)
           case Some(ProcessStatus.Expired) =>
-            logger.debug(s"Previous process is expired. Starting now. ${logContext}") >> start
+            logger.debug(s"Previous process is expired. Starting now. ${logContext}") >>
+              startProcess(id)
           case Some(ProcessStatus.Timeout) =>
-            logger.debug(s"Previous process is timed out. Starting now. ${logContext}") >> start
+            logger.debug(s"Previous process is timed out. Starting now. ${logContext}") >>
+              startProcess(id)
           case Some(ProcessStatus.Completed) =>
-            logger.debug(s"Previous process has completed. Not doing anything. ${logContext}") >> skip
+            logger.debug(s"Previous process has completed. Not doing anything. ${logContext}") >>
+              skipProcess
           case Some(ProcessStatus.Running)
               if (now.toEpochMilli - startedAt.toEpochMilli).milliseconds <= pollStrategy.maxPollDuration =>
             logger.debug(s"Previous process is running. Waiting... ${logContext}") >>
@@ -165,30 +177,23 @@ class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
       } yield outcome
     }
 
-    // nowF[F].flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
     nowF[F].flatMap(now => loop(now, 0, pollStrategy.initialDelay, none))
   }
 
-  /**
-    * Do the best effort to ensure a process to be successfully executed only once.
-    *
-    * If the process has already runned successfully before, it will run the [[ifDuplicate]].
-    * Otherwise, it will run the [[ifNew]].
-    *
-    * The return value is either the result of [[ifNew]] or [[ifDuplicate]].
-    *
-    * @param id The id of the process to run.
-    * @param ifNew The effect to run if the process is new.
-    * @param ifDuplicate The effect to run if the process is duplicate.
-    * @return the result of [[ifNew]] or [[ifDuplicate]].
-    */
-  def protect[A](id: ID, ifNew: F[A], ifDuplicate: F[A]): F[A] = {
-    tryStartProcess(id)
-      .flatMap {
-        case Outcome.New(markAsComplete) =>
-          ifNew.flatTap(_ => markAsComplete)
-        case Outcome.Duplicate() =>
-          ifDuplicate
-      }
+  private def startProcess(id: ID): F[Outcome[F]] = {
+    Outcome
+      .neu(
+        nowF[F].flatMap { now =>
+          repo.completeProcess(id, config.processorId, now, config.ttl).flatTap { _ =>
+            logger.debug(
+              s"Process marked as completed. processorId=${config.processorId}, id=${id}"
+            )
+          }
+        }
+      )
+      .pure[F]
   }
+
+  private def skipProcess: F[Outcome[F]] = Outcome.duplicate[F].pure[F]
+
 }

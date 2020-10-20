@@ -2,29 +2,27 @@ package com.ovoenergy.comms.deduplication
 
 import java.util.UUID
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 import java.time.Instant
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 import cats.effect._
-import cats.effect.concurrent._
 import cats.implicits._
 
 import munit._
+import org.scalacheck.Arbitrary
 
 import software.amazon.awssdk.services.dynamodb.{model => _, _}
-
-import model._
-import Config._
-import dynamodb.DynamoDbProcessRepo
-import dynamodb.DynamoDbConfig
-import org.scalacheck.Arbitrary
-import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse
+
+import com.ovoenergy.comms.deduplication.TestUtils._
+import com.ovoenergy.comms.deduplication.dynamodb.DynamoDbConfig
+import com.ovoenergy.comms.deduplication.dynamodb.DynamoDbProcessRepo
+import com.ovoenergy.comms.deduplication.utils._
 
 class DynamoDbProcessRepoSuite extends FunSuite {
 
@@ -38,7 +36,10 @@ class DynamoDbProcessRepoSuite extends FunSuite {
     })
   )
 
-  def given[A: Arbitrary]: IO[A] = IO.fromOption(Arbitrary.arbitrary[A].sample)(new RuntimeException("Unable to generate a sample"))
+  def given[A: Arbitrary]: IO[A] =
+    IO.fromOption(Arbitrary.arbitrary[A].sample)(
+      new RuntimeException("Unable to generate a sample")
+    )
 
   test("startProcessingUpdate should add the record in dynamo") {
 
@@ -49,7 +50,7 @@ class DynamoDbProcessRepoSuite extends FunSuite {
         processorId <- given[UUID]
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli)
         _ <- resources.processRepoR.startProcessingUpdate(
-          id = id, 
+          id = id,
           processorId = processorId,
           now = now
         )
@@ -67,7 +68,7 @@ class DynamoDbProcessRepoSuite extends FunSuite {
         processorId <- given[UUID]
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli)
         _ <- resources.processRepoR.startProcessingUpdate(
-          id = id, 
+          id = id,
           processorId = processorId,
           now = now
         )
@@ -107,7 +108,9 @@ class DynamoDbProcessRepoSuite extends FunSuite {
 
   // if completed -> no
   // if not completed -> yes
-  test("startProcessingUpdate should update startedAt when there is a previous non-completed record") {
+  test(
+    "startProcessingUpdate should update startedAt when there is a previous non-completed record"
+  ) {
 
     resources.use { resources =>
 
@@ -116,13 +119,13 @@ class DynamoDbProcessRepoSuite extends FunSuite {
         processorId <- given[UUID]
         nowOne <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli)
         _ <- resources.processRepoR.startProcessingUpdate(
-          id = id, 
+          id = id,
           processorId = processorId,
           now = nowOne
         )
         nowTwo = nowOne.plusSeconds(5)
         _ <- resources.processRepoR.startProcessingUpdate(
-          id = id, 
+          id = id,
           processorId = processorId,
           now = nowTwo
         )
@@ -169,19 +172,19 @@ class DynamoDbProcessRepoSuite extends FunSuite {
         processorId <- given[UUID]
         nowOne <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli)
         _ <- resources.processRepoR.startProcessingUpdate(
-          id = id, 
+          id = id,
           processorId = processorId,
           now = nowOne
         )
         _ <- resources.processRepoR.completeProcess(
-          id = id, 
+          id = id,
           processorId = processorId,
           now = nowOne.plusMillis(100),
           ttl = 5.seconds
         )
         nowTwo = nowOne.plusSeconds(5)
         _ <- resources.processRepoR.startProcessingUpdate(
-          id = id, 
+          id = id,
           processorId = processorId,
           now = nowTwo
         )
@@ -206,13 +209,14 @@ class DynamoDbProcessRepoSuite extends FunSuite {
   }
 
   case class Resources(
-    config: DynamoDbConfig,
-    dynamoclient: DynamoDbAsyncClient,
-    processRepoR: ProcessRepo[IO, UUID, UUID]
+      config: DynamoDbConfig,
+      dynamoclient: DynamoDbAsyncClient,
+      processRepoR: ProcessRepo[IO, UUID, UUID]
   ) {
 
     def getItem(id: UUID, processorId: UUID): IO[Option[AttributeValue]] = {
-      val request = GetItemRequest.builder()
+      val request = GetItemRequest
+        .builder()
         .tableName(config.tableName.value)
         .key(
           Map(
@@ -239,24 +243,17 @@ class DynamoDbProcessRepoSuite extends FunSuite {
 
   }
 
-  // TODO Create and destroy the table
-  val tableResource = Resource.liftF(IO(sys.env.getOrElse("TEST_TABLE", "phil-processing")))
-
-  val dynamoDbR: Resource[IO, DynamoDbAsyncClient] =
-    Resource.make(Sync[IO].delay(DynamoDbAsyncClient.builder.build()))(c =>
-      Sync[IO].delay(c.close())
-    )
-
   val resources: Resource[IO, Resources] = for {
-    table <- tableResource
-    dynamoclient <- dynamoDbR
+    dynamoClient <- dynamoClientResource[IO]
+    tableName <- Resource.liftF(randomTableName[IO])
+    table <- tableResource[IO](dynamoClient, tableName)
     config = DynamoDbConfig(DynamoDbConfig.TableName(table))
   } yield Resources(
     config,
-    dynamoclient,
+    dynamoClient,
     DynamoDbProcessRepo[IO, UUID, UUID](
       config,
-      dynamoclient
+      dynamoClient
     )
   )
 }

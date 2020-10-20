@@ -222,14 +222,14 @@ class DynamoDbProcessRepoSuite extends FunSuite {
         )
         .consistentRead(true)
         .build()
-      
 
-      val response = DynamoDbProcessRepo.fromCompletableFuture[IO, GetItemResponse]{() => dynamoclient
-        .getItem(request)
+      val response = fromCompletableFuture[IO, GetItemResponse] { () =>
+        dynamoclient
+          .getItem(request)
       }
 
-      response.map { r => 
-        if(r.hasItem()) {
+      response.map { r =>
+        if (r.hasItem()) {
           AttributeValue.builder().m(r.item).build.some
         } else {
           none[AttributeValue]

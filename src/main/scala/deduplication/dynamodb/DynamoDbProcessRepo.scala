@@ -17,19 +17,9 @@ import software.amazon.awssdk.services.dynamodb.model._
 import software.amazon.awssdk.services.dynamodb._
 
 import com.ovoenergy.comms.deduplication.model._
+import com.ovoenergy.comms.deduplication.utils.fromCompletableFuture
 
 object DynamoDbProcessRepo {
-
-  def fromCompletableFuture[F[_]: Concurrent, A](f: () => CompletableFuture[A]): F[A] =
-    Concurrent[F].cancelable[A] { cb =>
-
-      val future = f()
-      future.whenComplete { (ok, err) =>
-        cb(Option(err).toLeft(ok))
-      }
-
-      Sync[F].delay(future.cancel(true)).void
-    }
 
   implicit class RichAttributeValue(av: AttributeValue) {
     def get[A: DynamoDbDecoder](key: String): Either[DecoderFailure, A] =

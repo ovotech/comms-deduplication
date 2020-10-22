@@ -48,7 +48,7 @@ commands:
 executors:
   docker:
     docker:
-    - image: circleci/openjdk:8-jdk
+    - image: circleci/openjdk:14.0.2-jdk-buster
     environment:
       JAVA_OPTS: "-Xmx1g -Xss2m -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
       DEFAULT_AWS_REGION: "eu-west-1"

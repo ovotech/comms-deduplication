@@ -49,6 +49,9 @@ executors:
   docker:
     docker:
     - image: circleci/openjdk:14.0.2-jdk-buster
+      auth:
+        username: $OVO_DOCKERHUB_USER
+        password: $OVO_DOCKERHUB_PASSWORD
     environment:
       JAVA_OPTS: "-Xmx1g -Xss2m -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
       DEFAULT_AWS_REGION: "eu-west-1"
@@ -72,6 +75,8 @@ jobs:
     steps:
 
     - checkout
+
+    - run: docker login --username $OVO_DOCKERHUB_USER --password $OVO_DOCKERHUB_PASSWORD
 
     - restore_sbt_cache
 
@@ -102,6 +107,8 @@ jobs:
 
     - checkout
 
+    - run: docker login --username $OVO_DOCKERHUB_USER --password $OVO_DOCKERHUB_PASSWORD
+
     - attach_workspace:
         at: .
 
@@ -120,6 +127,8 @@ jobs:
 
     steps:
     - checkout
+
+    - run: docker login --username $OVO_DOCKERHUB_USER --password $OVO_DOCKERHUB_PASSWORD
 
     - attach_workspace:
         at: .
@@ -141,11 +150,14 @@ jobs:
 workflows:
   build-and-deploy:
     jobs:
-    - build
+    - build:
+        context: ovo-internal-public
     - integration_test:
+        context: ovo-internal-public
         requires:
         - build
     - publish:
+        context: ovo-internal-public
         requires:
         - build
         - integration_test

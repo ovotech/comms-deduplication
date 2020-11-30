@@ -1,7 +1,6 @@
 package com.ovoenergy.comms.deduplication
 
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
 import scala.concurrent.ExecutionContext
@@ -13,13 +12,11 @@ import cats.implicits._
 
 import munit._
 
-import software.amazon.awssdk.services.dynamodb.{model => _, _}
-
 import model._
 import Config._
-import dynamodb.DynamoDbProcessRepo
-import dynamodb.DynamoDbConfig
 import org.scalacheck.Arbitrary
+
+import com.ovoenergy.comms.deduplication.TestUtils._
 
 class DeduplicationSuite extends FunSuite {
 
@@ -90,6 +87,31 @@ class DeduplicationSuite extends FunSuite {
       }
   }
 
+  // TODO this test is ignored because it is the symptoms of the issue we have with this library
+  test("Deduplication should not re-process multiple event if it failed the first time".ignore) {
+
+    val processorId = given[UUID]
+    val id = given[UUID]
+
+    deduplicationResource(processorId, 1.seconds)
+      .use { ps =>
+        for {
+          ref <- Ref[IO].of(0)
+          _ <- ps
+            .protect(id, IO.raiseError[Unit](new RuntimeException("Expected exception")), IO.unit)
+            .attempt
+          _ <- List
+            .fill(100)(id)
+            .parTraverse { _ =>
+              ps.protect(id, ref.update(_ + 1), IO.unit)
+            }
+          result <- ref.get
+        } yield {
+          assertEquals(result, 1)
+        }
+      }
+  }
+
   test("Deduplication should process the second event after the first one timeout") {
 
     val processorId = given[UUID]
@@ -149,29 +171,13 @@ class DeduplicationSuite extends FunSuite {
       }
   }
 
-  // TODO Create and destroy the table
-  val tableResource = Resource.liftF(IO(sys.env.getOrElse("TEST_TABLE", "phil-processing")))
-
-  val dynamoDbR: Resource[IO, DynamoDbAsyncClient] =
-    Resource.make(Sync[IO].delay(DynamoDbAsyncClient.builder.build()))(c =>
-      Sync[IO].delay(c.close())
-    )
-
-  val processRepoR: Resource[IO, ProcessRepo[IO, UUID, UUID]] = for {
-    table <- tableResource
-    dynamoclient <- dynamoDbR
-  } yield DynamoDbProcessRepo[IO, UUID, UUID](
-    DynamoDbConfig(DynamoDbConfig.TableName(table)),
-    dynamoclient
-  )
-
   def deduplicationResource(
       processorId: UUID,
       maxProcessingTime: FiniteDuration = 5.seconds,
       maxPollingTime: FiniteDuration = 15.seconds
   ): Resource[IO, Deduplication[IO, UUID, UUID]] =
     for {
-      processRepo <- processRepoR
+      processRepo <- processRepoResource[IO]
       config = Config(
         processorId = processorId,
         maxProcessingTime = maxProcessingTime,
@@ -181,10 +187,4 @@ class DeduplicationSuite extends FunSuite {
       deduplication <- Resource.liftF(Deduplication[IO, UUID, UUID](processRepo, config))
     } yield deduplication
 
-  def time[F[_]: Sync: Clock, A](fa: F[A]): F[(A, FiniteDuration)] =
-    for {
-      start <- Clock[F].monotonic(TimeUnit.MILLISECONDS)
-      a <- fa
-      end <- Clock[F].monotonic(TimeUnit.MILLISECONDS)
-    } yield (a, (end - start).millis)
 }

@@ -50,7 +50,7 @@ object DynamoDbProcessRepo {
         .map(Expiration(_))
     }
 
-  private object field {
+  object field {
     val id = "id"
     val processorId = "processorId"
     val startedAt = "startedAt"

@@ -87,6 +87,31 @@ class DeduplicationSuite extends FunSuite {
       }
   }
 
+  // TODO this test is ignored because it is the symptoms of the issue we have with this library
+  test("Deduplication should not re-process multiple event if it failed the first time".ignore) {
+
+    val processorId = given[UUID]
+    val id = given[UUID]
+
+    deduplicationResource(processorId, 1.seconds)
+      .use { ps =>
+        for {
+          ref <- Ref[IO].of(0)
+          _ <- ps
+            .protect(id, IO.raiseError[Unit](new RuntimeException("Expected exception")), IO.unit)
+            .attempt
+          _ <- List
+            .fill(100)(id)
+            .parTraverse { _ =>
+              ps.protect(id, ref.update(_ + 1), IO.unit)
+            }
+          result <- ref.get
+        } yield {
+          assertEquals(result, 1)
+        }
+      }
+  }
+
   test("Deduplication should process the second event after the first one timeout") {
 
     val processorId = given[UUID]

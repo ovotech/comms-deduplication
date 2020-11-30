@@ -1,7 +1,6 @@
 package com.ovoenergy.comms.deduplication
 
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
 import scala.concurrent.ExecutionContext
@@ -13,13 +12,11 @@ import cats.implicits._
 
 import munit._
 
-import software.amazon.awssdk.services.dynamodb.{model => _, _}
-
 import model._
 import Config._
-import dynamodb.DynamoDbProcessRepo
-import dynamodb.DynamoDbConfig
 import org.scalacheck.Arbitrary
+
+import com.ovoenergy.comms.deduplication.TestUtils._
 
 class DeduplicationSuite extends FunSuite {
 
@@ -149,29 +146,13 @@ class DeduplicationSuite extends FunSuite {
       }
   }
 
-  // TODO Create and destroy the table
-  val tableResource = Resource.liftF(IO(sys.env.getOrElse("TEST_TABLE", "phil-processing")))
-
-  val dynamoDbR: Resource[IO, DynamoDbAsyncClient] =
-    Resource.make(Sync[IO].delay(DynamoDbAsyncClient.builder.build()))(c =>
-      Sync[IO].delay(c.close())
-    )
-
-  val processRepoR: Resource[IO, ProcessRepo[IO, UUID, UUID]] = for {
-    table <- tableResource
-    dynamoclient <- dynamoDbR
-  } yield DynamoDbProcessRepo[IO, UUID, UUID](
-    DynamoDbConfig(DynamoDbConfig.TableName(table)),
-    dynamoclient
-  )
-
   def deduplicationResource(
       processorId: UUID,
       maxProcessingTime: FiniteDuration = 5.seconds,
       maxPollingTime: FiniteDuration = 15.seconds
   ): Resource[IO, Deduplication[IO, UUID, UUID]] =
     for {
-      processRepo <- processRepoR
+      processRepo <- processRepoResource[IO]
       config = Config(
         processorId = processorId,
         maxProcessingTime = maxProcessingTime,
@@ -181,10 +162,4 @@ class DeduplicationSuite extends FunSuite {
       deduplication <- Resource.liftF(Deduplication[IO, UUID, UUID](processRepo, config))
     } yield deduplication
 
-  def time[F[_]: Sync: Clock, A](fa: F[A]): F[(A, FiniteDuration)] =
-    for {
-      start <- Clock[F].monotonic(TimeUnit.MILLISECONDS)
-      a <- fa
-      end <- Clock[F].monotonic(TimeUnit.MILLISECONDS)
-    } yield (a, (end - start).millis)
 }

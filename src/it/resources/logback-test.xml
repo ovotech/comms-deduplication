@@ -10,6 +10,7 @@
 
     <logger name="org.apache.http" level="OFF" />
     <logger name="com.amazonaws.auth.profile.internal.BasicProfileConfigLoader" level="OFF" />
+    <logger name="software.amazon.awssdk.profiles.internal.ProfileFileReader" level="OFF" />
     <logger name="com.ovoenergy.comms.deduplication" level="DEBUG" />
 
     <root level="WARN">

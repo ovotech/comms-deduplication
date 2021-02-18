@@ -1,10 +1,10 @@
-val catsVersion = "2.4.2"
-val catsEffectVersion = "2.4.2"
+val catsVersion = "2.3.1"
+val catsEffectVersion = "2.3.3"
 val slf4jVersion = "1.7.30"
 val scalaJava8CompatVersion = "0.9.1"
 val awsSdkVersion = "2.16.0"
 val log4CatsVersion = "1.1.1"
-val munitVersion = "0.7.21"
+val munitVersion = "0.7.22"
 val logBackVersion = "1.2.3"
 
 lazy val deduplication = (project in file("."))

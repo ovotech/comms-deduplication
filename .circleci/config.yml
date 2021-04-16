@@ -145,7 +145,7 @@ jobs:
 
     - run:
         name: Release
-        command: sbt +releaseEarly
+        command: sbt +publish
 
 workflows:
   build-and-deploy:
@@ -157,7 +157,9 @@ workflows:
         requires:
         - build
     - publish:
-        context: ovo-internal-public
+        context:
+        - ovo-internal-public
+        - comms-internal-build
         requires:
         - build
         - integration_test

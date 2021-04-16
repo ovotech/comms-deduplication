@@ -1,3 +1,7 @@
+import sbtrelease.ExtraReleaseCommands
+import sbtrelease.ReleaseStateTransformations._
+import sbtrelease.tagsonly.TagsOnly._
+
 val catsVersion = "2.5.0"
 val catsEffectVersion = "2.4.1"
 val slf4jVersion = "1.7.30"
@@ -7,10 +11,32 @@ val log4CatsVersion = "1.1.1"
 val munitVersion = "0.7.23"
 val logBackVersion = "1.2.3"
 
+lazy val publicArtifactory = "Artifactory Realm" at "https://kaluza.jfrog.io/artifactory/maven"
+
+lazy val publishSettings = Seq(
+  publishTo := Some(publicArtifactory),
+  credentials += {
+    for {
+      usr <- sys.env.get("ARTIFACTORY_USER")
+      password <- sys.env.get("ARTIFACTORY_PASS")
+    } yield Credentials("Artifactory Realm", "kaluza.jfrog.io", usr, password)
+  }.getOrElse(Credentials(Path.userHome / ".ivy2" / ".credentials")),
+  releaseProcess := Seq[ReleaseStep](
+    checkSnapshotDependencies,
+    releaseStepCommand(ExtraReleaseCommands.initialVcsChecksCommand),
+    setVersionFromTags(releaseTagPrefix.value),
+    runClean,
+    tagRelease,
+    publishArtifacts,
+    pushTagsOnly
+  )
+)
+
 lazy val deduplication = (project in file("."))
   .enablePlugins(BuildInfoPlugin)
   .configs(IntegrationTest)
   .settings(inConfig(IntegrationTest)(Defaults.testSettings))
+  .settings(publishSettings)
   .settings(
     organization := "com.ovoenergy.comms",
     organizationHomepage := Some(url("http://www.ovoenergy.com")),
@@ -43,9 +69,6 @@ lazy val deduplication = (project in file("."))
         url("https://github.com/SystemFw")
       )
     ),
-    resolvers ++= Seq(
-      Resolver.bintrayRepo("ovotech", "maven")
-    ),
     excludeDependencies ++= Seq(
       ExclusionRule("commons-logging", "commons-logging")
     ),
@@ -53,14 +76,6 @@ lazy val deduplication = (project in file("."))
     buildInfoPackage := "com.ovoenergy.comms.deduplication",
     version ~= (_.replace('+', '-')),
     dynver ~= (_.replace('+', '-')),
-    bintrayOrganization := Some("ovotech"),
-    bintrayPackage := { "comms-" ++ moduleName.value },
-    bintrayPackageLabels := Seq("duplication", "deduplication"),
-    bintrayRepository := "maven",
-    bintrayOmitLicense := true,
-    releaseEarlyWith := BintrayPublisher,
-    releaseEarlyEnableSyncToMaven := false,
-    releaseEarlyNoGpg := true,
     libraryDependencies ++= Seq(
       "org.typelevel" %% "cats-core" % catsVersion,
       "org.typelevel" %% "cats-effect" % catsEffectVersion,

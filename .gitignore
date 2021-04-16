@@ -17,6 +17,7 @@ project/plugins/project/
 .lib/
 *.class
 *.log
+.bsp
 
 # Metals
 .metals/

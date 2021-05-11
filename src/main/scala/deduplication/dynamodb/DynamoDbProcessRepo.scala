@@ -80,6 +80,12 @@ object DynamoDbProcessRepo {
       }.guarantee(ContextShift[F].shift)
     }
 
+    def delete(request: DeleteItemRequest) = {
+      fromCompletableFuture[F, DeleteItemResponse] { () =>
+        client.deleteItem(request)
+      }.guarantee(ContextShift[F].shift)
+    }
+
     def readProcess(
         attributes: AttributeValue
     ): Either[DecoderFailure, Process[ID, ProcessorID]] =
@@ -139,10 +145,13 @@ object DynamoDbProcessRepo {
           id: ID,
           processorId: ProcessorID,
           now: Instant,
-          ttl: FiniteDuration
+          ttl: Option[FiniteDuration]
       ): F[Unit] = {
         val completedAtVar = ":completedAt"
         val expiresOnVar = ":expiresOn"
+        val updateExpression = s"SET ${field.completedAt}=$completedAtVar" + ttl.fold("")(_ =>
+          s", ${field.expiresOn}=$expiresOnVar"
+        )
 
         val request = UpdateItemRequest
           .builder()
@@ -153,20 +162,19 @@ object DynamoDbProcessRepo {
               field.processorId -> DynamoDbEncoder[ProcessorID].write(processorId)
             ).asJava
           )
-          .updateExpression(
-            s"SET ${field.completedAt}=${completedAtVar}, ${field.expiresOn}=${expiresOnVar}"
-          )
+          .updateExpression(updateExpression)
           .expressionAttributeValues(
-            Map(
+            (Map(
               completedAtVar -> AttributeValue
                 .builder()
-                .n(now.toEpochMilli().toString)
-                .build(),
+                .n(now.toEpochMilli.toString)
+                .build()
+            ) ++ ttl.map(ttl =>
               expiresOnVar -> AttributeValue
                 .builder()
-                .n(now.plus(ttl.toJava).getEpochSecond().toString)
+                .n(now.plus(ttl.toJava).getEpochSecond.toString)
                 .build()
-            ).asJava
+            )).asJava
           )
           .returnValues(ReturnValue.NONE)
           .build()
@@ -174,6 +182,21 @@ object DynamoDbProcessRepo {
         update(request).void
       }
 
+      def invalidateProcess(id: ID, processorId: ProcessorID): F[Unit] = {
+        val request = DeleteItemRequest
+          .builder()
+          .tableName(config.tableName.value)
+          .key(
+            Map(
+              field.id -> DynamoDbEncoder[ID].write(id),
+              field.processorId -> DynamoDbEncoder[ProcessorID].write(processorId)
+            ).asJava
+          )
+          .returnValues(ReturnValue.NONE)
+          .build()
+
+        delete(request).void
+      }
     }
 
   }

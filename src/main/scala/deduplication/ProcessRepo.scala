@@ -17,6 +17,11 @@ trait ProcessRepo[F[_], ID, ProcessorID] {
       id: ID,
       processorId: ProcessorID,
       now: Instant,
-      ttl: FiniteDuration
+      ttl: Option[FiniteDuration]
+  ): F[Unit]
+
+  def invalidateProcess(
+      id: ID,
+      processorId: ProcessorID
   ): F[Unit]
 }

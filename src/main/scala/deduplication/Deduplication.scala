@@ -194,8 +194,10 @@ class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
   /**
     * Invalidate a process.
     *
+    * If the process exists, the record is deleted.
+    *
     * @param id The process id to invalidate
-    * @return Nothing
+    * @return Unit
     */
   def invalidate(id: ID): F[Unit] = {
     repo.invalidateProcess(id, config.processorId).flatTap { _ =>

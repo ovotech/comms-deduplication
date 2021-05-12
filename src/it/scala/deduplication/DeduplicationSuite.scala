@@ -181,10 +181,10 @@ class DeduplicationSuite extends FunSuite {
       config = Config(
         processorId = processorId,
         maxProcessingTime = maxProcessingTime,
-        ttl = 1.day,
+        ttl = 1.day.some,
         pollStrategy = PollStrategy.backoff(maxDuration = maxPollingTime)
       )
-      deduplication <- Resource.liftF(Deduplication[IO, UUID, UUID](processRepo, config))
+      deduplication <- Resource.eval(Deduplication[IO, UUID, UUID](processRepo, config))
     } yield deduplication
 
 }

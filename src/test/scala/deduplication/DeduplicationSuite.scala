@@ -39,8 +39,14 @@ class DeduplicationSuite extends FunSuite {
         processorId: ju.UUID,
         now: Instant
     ): IO[Option[Process[UUID, UUID]]] = none[Process[UUID, UUID]].pure[IO]
-    def completeProcess(id: UUID, processorId: UUID, now: Instant, ttl: FiniteDuration): IO[Unit] =
+    def completeProcess(
+        id: UUID,
+        processorId: UUID,
+        now: Instant,
+        ttl: Option[FiniteDuration]
+    ): IO[Unit] =
       IO.unit
+    def invalidateProcess(id: UUID, processorId: UUID): IO[Unit] = IO.unit
   }
 
   test(
@@ -61,7 +67,7 @@ class DeduplicationSuite extends FunSuite {
       Config(
         processorId = processorId,
         maxProcessingTime = 5.minutes,
-        ttl = 30.days,
+        ttl = 30.days.some,
         pollStrategy = PollStrategy.linear()
       )
     )
@@ -104,7 +110,7 @@ class DeduplicationSuite extends FunSuite {
       Config(
         processorId = processorId,
         maxProcessingTime = 5.minutes,
-        ttl = 30.days,
+        ttl = 30.days.some,
         pollStrategy = PollStrategy.linear()
       )
     )
@@ -146,7 +152,7 @@ class DeduplicationSuite extends FunSuite {
       Config(
         processorId = processorId,
         maxProcessingTime = 5.minutes,
-        ttl = 30.days,
+        ttl = 30.days.some,
         pollStrategy = PollStrategy.linear()
       )
     )
@@ -188,7 +194,7 @@ class DeduplicationSuite extends FunSuite {
       Config(
         processorId = processorId,
         maxProcessingTime = 5.minutes,
-        ttl = 30.days,
+        ttl = 30.days.some,
         pollStrategy = PollStrategy.linear()
       )
     )
@@ -230,7 +236,7 @@ class DeduplicationSuite extends FunSuite {
       Config(
         processorId = processorId,
         maxProcessingTime = 100.seconds,
-        ttl = 30.days,
+        ttl = 30.days.some,
         pollStrategy = PollStrategy.linear()
       )
     )

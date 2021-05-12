@@ -22,7 +22,7 @@ import Config._
 case class Config[ProcessorID](
     processorId: ProcessorID,
     maxProcessingTime: FiniteDuration,
-    ttl: FiniteDuration,
+    ttl: Option[FiniteDuration],
     pollStrategy: PollStrategy
 )
 

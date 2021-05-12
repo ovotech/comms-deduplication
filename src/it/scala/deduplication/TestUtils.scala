@@ -22,7 +22,7 @@ package object TestUtils {
       : Resource[F, ProcessRepo[F, UUID, UUID]] =
     for {
       dynamoclient <- dynamoClientResource[F]
-      tableName <- Resource.liftF(randomTableName)
+      tableName <- Resource.eval(randomTableName)
       table <- tableResource[F](dynamoclient, tableName)
     } yield DynamoDbProcessRepo[F, UUID, UUID](
       DynamoDbConfig(DynamoDbConfig.TableName(table)),

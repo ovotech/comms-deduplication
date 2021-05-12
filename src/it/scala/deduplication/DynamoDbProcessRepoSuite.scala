@@ -106,6 +106,68 @@ class DynamoDbProcessRepoSuite extends FunSuite {
     }
   }
 
+  test("completeProcess should not populate expiresOn when there is no ttl provided") {
+
+    resources.use { resources =>
+
+      for {
+        id <- given[UUID]
+        processorId <- given[UUID]
+        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli)
+        _ <- resources.processRepoR.completeProcess(
+          id = id,
+          processorId = processorId,
+          now = now,
+          ttl = None
+        )
+        optItem <- resources.getItem(id, processorId)
+        item <- IO.fromOption(optItem)(new RuntimeException("Item not found"))
+      } yield {
+
+        val testeeCompletedAt = Option(item.m)
+          .flatMap { m =>
+            Option(m.get(DynamoDbProcessRepo.field.completedAt))
+          }.flatMap { id =>
+            Option(id.n())
+          }.map { n =>
+            Instant.ofEpochMilli(n.toLong)
+          }
+
+        assertEquals(clue(testeeCompletedAt), now.some, clue(item))
+
+        val testeeExpiredOn = Option(item.m)
+          .flatMap { m =>
+            Option(m.get(DynamoDbProcessRepo.field.expiresOn))
+          }
+
+        assertEquals(clue(testeeExpiredOn), None, clue(item))
+      }
+    }
+  }
+
+  test("invalidateProcess should remove the record in dynamo") {
+
+    resources.use { resources =>
+      for {
+        id <- given[UUID]
+        processorId <- given[UUID]
+        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli)
+        _ <- resources.processRepoR.startProcessingUpdate(
+          id = id,
+          processorId = processorId,
+          now = now
+        )
+        _ <- resources.processRepoR.invalidateProcess(
+          id = id,
+          processorId = processorId
+        )
+        optItem <- resources.getItem(id, processorId)
+      } yield {
+        assertEquals(optItem, none[AttributeValue])
+      }
+    }
+  }
+
   case class Resources(
       config: DynamoDbConfig,
       dynamoclient: DynamoDbAsyncClient,
@@ -143,7 +205,7 @@ class DynamoDbProcessRepoSuite extends FunSuite {
 
   val resources: Resource[IO, Resources] = for {
     dynamoClient <- dynamoClientResource[IO]
-    tableName <- Resource.liftF(randomTableName[IO])
+    tableName <- Resource.eval(randomTableName[IO])
     table <- tableResource[IO](dynamoClient, tableName)
     config = DynamoDbConfig(DynamoDbConfig.TableName(table))
   } yield Resources(

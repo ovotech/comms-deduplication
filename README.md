@@ -44,3 +44,7 @@ When the library attemp to start a process, these scenarios can happen:
 4) The signal is stil being processing (`completedAt` is absent and `startedAt` + `processingTime` is in the future)
 
 In cases (1) and (2) the library allows the signal to be processed. In cases (3) the library does not allow the signal to be processed again and (4) the library wait the process to either complete or timeout before taking any decision.
+
+## Terraform
+
+An [example terraform file](example.tf) is provided for provisioning the backing database with DynamoDB.

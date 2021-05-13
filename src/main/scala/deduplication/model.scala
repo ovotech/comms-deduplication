@@ -10,7 +10,7 @@ object model {
     * It ould be either New or Duplicate. The New has a markAsComplete member
     * that should be used to mark the process as complete after it has succeeded
     */
-  trait Outcome[F[_]]
+  sealed trait Outcome[F[_]]
   object Outcome {
     case class Duplicate[F[_]]() extends Outcome[F]
     case class New[F[_]](markAsComplete: F[Unit]) extends Outcome[F]

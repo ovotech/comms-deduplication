@@ -12,9 +12,69 @@ import cats.implicits._
 import cats.effect._
 
 import com.ovoenergy.comms.deduplication.model._
-import Deduplication._
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.chrisdavenport.log4cats.StructuredLogger
+
+trait Deduplication[F[_], ID, ProcessorID] {
+
+  /**
+    * Try to start a process.
+    *
+    * If the process with the giving id has never started before, this will start a new process and return Outcome.New
+    * If another process with the same id has already completed, this will do nothing and return Outcome.Duplicate
+    * If another process with the same id has already started and timeouted, this will start a new process and return Outcome.New
+    * If another process with the same id is still running, this will wait until it will complete or timeout and return Outcome.Duplicate or Outcome.New
+    *
+    * If markAsComplete fails, the process will likely be duplicated.
+    * If the process takes more time than maxProcessingTime, you may have duplicate if two processes with same ID happen at the same time
+    *
+    * eg
+    * ```
+    * tryStartProcess(id)
+    *   .flatMap {
+    *     case Outcome.New(markAsComplete) =>
+    *       doYourStuff.flatTap(_ => markAsComplete)
+    *     case Outcome.Duplicate() =>
+    *       dontDoYourStuff
+    *   }
+    * ```
+    *
+    * @param id The process id to start
+    * @return An Outcome.New or Outcome.Duplicate. The Outcome.New will contain an effect to complete the just started process.
+    */
+  def tryStartProcess(id: ID): F[Outcome[F]]
+
+  /**
+    * Do the best effort to ensure a process to be successfully executed only once.
+    *
+    * If the process has already runned successfully before, it will run the [[ifDuplicate]].
+    * Otherwise, it will run the [[ifNew]].
+    *
+    * The return value is either the result of [[ifNew]] or [[ifDuplicate]].
+    *
+    * @param id The id of the process to run.
+    * @param ifNew The effect to run if the process is new.
+    * @param ifDuplicate The effect to run if the process is duplicate.
+    * @return the result of [[ifNew]] or [[ifDuplicate]].
+    */
+  final def protect[A](id: ID, ifNew: F[A], ifDuplicate: F[A])(implicit flatMap: FlatMap[F]): F[A] =
+    tryStartProcess(id)
+      .flatMap {
+        case Outcome.New(markAsComplete) =>
+          ifNew.flatTap(_ => markAsComplete)
+        case Outcome.Duplicate() =>
+          ifDuplicate
+      }
+
+  /**
+    * Invalidate a process.
+    *
+    * If the process exists, the record is deleted.
+    *
+    * @param id The process id to invalidate
+    * @return Unit
+    */
+  def invalidate(id: ID): F[Unit]
+}
 
 object Deduplication {
 
@@ -54,156 +114,94 @@ object Deduplication {
       repo: ProcessRepo[F, ID, ProcessorID],
       config: Config[ProcessorID]
   ): F[Deduplication[F, ID, ProcessorID]] = Slf4jLogger.create[F].map { logger =>
-    new Deduplication[F, ID, ProcessorID](repo, config, logger)
-  }
+    new Deduplication[F, ID, ProcessorID] {
 
-}
+      override def tryStartProcess(id: ID): F[Outcome[F]] = {
 
-class Deduplication[F[_]: Sync: Timer, ID, ProcessorID] private (
-    repo: ProcessRepo[F, ID, ProcessorID],
-    config: Config[ProcessorID],
-    logger: StructuredLogger[F]
-) {
+        val pollStrategy = config.pollStrategy
 
-  /**
-    * Try to start a process.
-    *
-    * If the process with the giving id has never started before, this will start a new process and return Outcome.New
-    * If another process with the same id has already completed, this will do nothing and return Outcome.Duplicate
-    * If another process with the same id has already started and timeouted, this will start a new process and return Outcome.New
-    * If another process with the same id is still running, this will wait until it will complete or timeout and return Outcome.Duplicate or Outcome.New
-    *
-    * If markAsComplete fails, the process will likely be duplicated.
-    * If the process takes more time than maxProcessingTime, you may have duplicate if two processes with same ID happen at the same time
-    *
-    * eg
-    * ```
-    * tryStartProcess(id)
-    *   .flatMap {
-    *     case Outcome.New(markAsComplete) =>
-    *       doYourStuff.flatTap(_ => markAsComplete)
-    *     case Outcome.Duplicate() =>
-    *       dontDoYourStuff
-    *   }
-    * ```
-    *
-    * @param id The process id to start
-    * @return An Outcome.New or Outcome.Duplicate. The Outcome.New will contain an effect to complete the just started process.
-    */
-  def tryStartProcess(id: ID): F[Outcome[F]] = {
+        def doIt(
+            startedAt: Instant,
+            pollNo: Int,
+            pollDelay: FiniteDuration
+        ): F[Outcome[F]] = {
 
-    val pollStrategy = config.pollStrategy
+          def logContext =
+            s"processorId=${config.processorId}, id=${id}, startedAt=${startedAt}, pollNo=${pollNo}"
 
-    def doIt(
-        startedAt: Instant,
-        pollNo: Int,
-        pollDelay: FiniteDuration
-    ): F[Outcome[F]] = {
+          def nextStep(ps: ProcessStatus): F[Outcome[F]] = ps match {
+            case ProcessStatus.Running =>
+              val totalDurationF = nowF[F]
+                .map(now => (now.toEpochMilli - startedAt.toEpochMilli).milliseconds)
 
-      def logContext =
-        s"processorId=${config.processorId}, id=${id}, startedAt=${startedAt}, pollNo=${pollNo}"
+              val stopRetry = logger.warn(
+                s"Process still running, stop retry-ing ${logContext}"
+              ) >> Sync[F]
+                .raiseError[Outcome[F]](new TimeoutException(s"Stop polling after ${pollNo} polls"))
 
-      def nextStep(ps: ProcessStatus): F[Outcome[F]] = ps match {
-        case ProcessStatus.Running =>
-          val totalDurationF = nowF[F]
-            .map(now => (now.toEpochMilli - startedAt.toEpochMilli).milliseconds)
+              val retry = logger.debug(
+                s"Process still running, retry-ing ${logContext}"
+              ) >>
+                Timer[F].sleep(pollDelay) >>
+                doIt(
+                  startedAt,
+                  pollNo + 1,
+                  config.pollStrategy.nextDelay(pollNo, pollDelay)
+                )
 
-          val stopRetry = logger.warn(
-            s"Process still running, stop retry-ing ${logContext}"
-          ) >> Sync[F]
-            .raiseError[Outcome[F]](new TimeoutException(s"Stop polling after ${pollNo} polls"))
+              // retry until it is either Completed or Timeout
+              totalDurationF
+                .map(td => td >= pollStrategy.maxPollDuration)
+                .ifM(stopRetry, retry)
 
-          val retry = logger.debug(
-            s"Process still running, retry-ing ${logContext}"
-          ) >>
-            Timer[F].sleep(pollDelay) >>
-            doIt(
-              startedAt,
-              pollNo + 1,
-              config.pollStrategy.nextDelay(pollNo, pollDelay)
-            )
-
-          // retry until it is either Completed or Timeout
-          totalDurationF
-            .map(td => td >= pollStrategy.maxPollDuration)
-            .ifM(stopRetry, retry)
-
-        case ProcessStatus.NotStarted | ProcessStatus.Timeout | ProcessStatus.Expired =>
-          logger
-            .debug(
-              s"Process status is ${ps}, starting now ${logContext}"
-            )
-            .as {
-              Outcome.New(
-                nowF[F].flatMap { now =>
-                  repo.completeProcess(id, config.processorId, now, config.ttl).flatTap { _ =>
-                    logger.debug(
-                      s"Process marked as completed ${logContext}"
-                    )
-                  }
+            case ProcessStatus.NotStarted | ProcessStatus.Timeout | ProcessStatus.Expired =>
+              logger
+                .debug(
+                  s"Process status is ${ps}, starting now ${logContext}"
+                )
+                .as {
+                  Outcome.New(
+                    nowF[F].flatMap { now =>
+                      repo.completeProcess(id, config.processorId, now, config.ttl).flatTap { _ =>
+                        logger.debug(
+                          s"Process marked as completed ${logContext}"
+                        )
+                      }
+                    }
+                  )
                 }
-              )
-            }
-            .widen[Outcome[F]]
+                .widen[Outcome[F]]
 
-        case ProcessStatus.Completed =>
-          logger
-            .debug(
-              s"Process is duplicated processorId=${config.processorId}, id=${id}, startedAt=${startedAt}"
-            )
-            .as(Outcome.Duplicate())
-      }
-
-      for {
-        now <- nowF[F]
-        processOpt <- repo.startProcessingUpdate(id, config.processorId, now)
-        status = processOpt
-          .fold[ProcessStatus](ProcessStatus.NotStarted) { p =>
-            processStatus(config.maxProcessingTime, now)(p)
+            case ProcessStatus.Completed =>
+              logger
+                .debug(
+                  s"Process is duplicated processorId=${config.processorId}, id=${id}, startedAt=${startedAt}"
+                )
+                .as(Outcome.Duplicate())
           }
-        sample <- nextStep(status)
-      } yield sample
-    }
 
-    nowF[F].flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
-  }
+          for {
+            now <- nowF[F]
+            processOpt <- repo.startProcessingUpdate(id, config.processorId, now)
+            status = processOpt
+              .fold[ProcessStatus](ProcessStatus.NotStarted) { p =>
+                processStatus(config.maxProcessingTime, now)(p)
+              }
+            sample <- nextStep(status)
+          } yield sample
+        }
 
-  /**
-    * Do the best effort to ensure a process to be successfully executed only once.
-    *
-    * If the process has already runned successfully before, it will run the [[ifDuplicate]].
-    * Otherwise, it will run the [[ifNew]].
-    *
-    * The return value is either the result of [[ifNew]] or [[ifDuplicate]].
-    *
-    * @param id The id of the process to run.
-    * @param ifNew The effect to run if the process is new.
-    * @param ifDuplicate The effect to run if the process is duplicate.
-    * @return the result of [[ifNew]] or [[ifDuplicate]].
-    */
-  def protect[A](id: ID, ifNew: F[A], ifDuplicate: F[A]): F[A] = {
-    tryStartProcess(id)
-      .flatMap {
-        case Outcome.New(markAsComplete) =>
-          ifNew.flatTap(_ => markAsComplete)
-        case Outcome.Duplicate() =>
-          ifDuplicate
+        nowF[F].flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
       }
-  }
 
-  /**
-    * Invalidate a process.
-    *
-    * If the process exists, the record is deleted.
-    *
-    * @param id The process id to invalidate
-    * @return Unit
-    */
-  def invalidate(id: ID): F[Unit] = {
-    repo.invalidateProcess(id, config.processorId).flatTap { _ =>
-      logger.debug(
-        s"Process invalidated processorId=${config.processorId}, id=$id"
-      )
+      override def invalidate(id: ID): F[Unit] = {
+        repo.invalidateProcess(id, config.processorId).flatTap { _ =>
+          logger.debug(
+            s"Process invalidated processorId=${config.processorId}, id=$id"
+          )
+        }
+      }
     }
   }
+
 }

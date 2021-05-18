@@ -48,7 +48,7 @@ lazy val deduplication = (project in file("."))
     initialCommands := s"import com.ovoenergy.comms.deduplication._",
     javacOptions ++= Seq("-Xlint:unchecked", "-Xlint:deprecation"),
     testFrameworks += new TestFramework("munit.Framework"),
-    addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.11.3" cross CrossVersion.full),
+    addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.0" cross CrossVersion.full),
     scmInfo := Some(
       ScmInfo(
         url("https://github.com/ovotech/comms-deduplication"),

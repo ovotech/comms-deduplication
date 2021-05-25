@@ -13,6 +13,7 @@ import cats.effect._
 
 import com.ovoenergy.comms.deduplication.model._
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import cats.effect.Temporal
 
 trait Deduplication[F[_], ID, ProcessorID] {
 
@@ -110,7 +111,7 @@ object Deduplication {
     }
   }
 
-  def apply[F[_]: Sync: Timer, ID, ProcessorID](
+  def apply[F[_]: Sync: Temporal, ID, ProcessorID](
       repo: ProcessRepo[F, ID, ProcessorID],
       config: Config[ProcessorID]
   ): F[Deduplication[F, ID, ProcessorID]] = Slf4jLogger.create[F].map { logger =>
@@ -142,7 +143,7 @@ object Deduplication {
               val retry = logger.debug(
                 s"Process still running, retry-ing ${logContext}"
               ) >>
-                Timer[F].sleep(pollDelay) >>
+                Temporal[F].sleep(pollDelay) >>
                 doIt(
                   startedAt,
                   pollNo + 1,

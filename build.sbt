@@ -2,11 +2,11 @@ import sbtrelease.ExtraReleaseCommands
 import sbtrelease.ReleaseStateTransformations._
 import sbtrelease.tagsonly.TagsOnly._
 
-val catsVersion = "2.5.0"
+val catsVersion = "2.6.1"
 val catsEffectVersion = "2.5.1"
 val slf4jVersion = "1.7.30"
-val scalaJava8CompatVersion = "1.0.0"
-val awsSdkVersion = "2.16.65"
+val scalaJava8CompatVersion = "0.9.1"
+val awsSdkVersion = "2.16.70"
 val log4CatsVersion = "1.1.1"
 val munitVersion = "0.7.26"
 val logBackVersion = "1.2.3"

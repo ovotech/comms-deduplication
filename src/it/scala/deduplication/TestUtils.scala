@@ -14,11 +14,10 @@ import software.amazon.awssdk.services.dynamodb.model._
 import software.amazon.awssdk.services.dynamodb.{model => _, _}
 
 import com.ovoenergy.comms.deduplication.dynamodb._
-import com.ovoenergy.comms.deduplication.utils._
 
 package object TestUtils {
 
-  def processRepoResource[F[_]: Concurrent: ContextShift: Timer]
+  def processRepoResource[F[_]: Async]
       : Resource[F, ProcessRepo[F, UUID, UUID]] =
     for {
       dynamoclient <- dynamoClientResource[F]
@@ -29,13 +28,13 @@ package object TestUtils {
       dynamoclient
     )
 
-  def tableResource[F[_]: Concurrent: Timer](
+  def tableResource[F[_]: Async](
       client: DynamoDbAsyncClient,
       tableName: String
   ): Resource[F, String] =
     Resource.make(createTable(client, tableName))(deleteTable(client, _))
 
-  def createTable[F[_]: Concurrent: Timer](
+  def createTable[F[_]: Async](
       client: DynamoDbAsyncClient,
       tableName: String
   ): F[String] = {
@@ -55,34 +54,34 @@ package object TestUtils {
           dynamoAttribute(DynamoDbProcessRepo.field.processorId, ScalarAttributeType.S)
         )
         .build()
-    fromCompletableFuture[F, CreateTableResponse](() => client.createTable(createTableRequest))
+    Async[F].fromCompletableFuture(Sync[F].delay(client.createTable(createTableRequest)))
       .map(_.tableDescription().tableName())
       .flatTap(waitForTableCreation(client, _))
       .onError {
-        case NonFatal(e) => Concurrent[F].delay(println(s"Error creating DynamoDb table: $e"))
+        case NonFatal(e) => Sync[F].delay(println(s"Error creating DynamoDb table: $e"))
       }
   }
 
-  def deleteTable[F[_]: Concurrent](client: DynamoDbAsyncClient, tableName: String): F[Unit] = {
+  def deleteTable[F[_]: Async](client: DynamoDbAsyncClient, tableName: String): F[Unit] = {
     val deleteTableRequest = DeleteTableRequest.builder().tableName(tableName).build()
-    fromCompletableFuture[F, DeleteTableResponse](() => client.deleteTable(deleteTableRequest)).void
+    Async[F].fromCompletableFuture(Sync[F].delay(client.deleteTable(deleteTableRequest))).void
       .onError {
         case NonFatal(e) => Concurrent[F].delay(println(s"Error creating DynamoDb table: $e"))
       }
   }
 
-  def waitForTableCreation[F[_]: Concurrent: Timer](
+  def waitForTableCreation[F[_]: Async](
       client: DynamoDbAsyncClient,
       tableName: String,
       pollEveryMs: FiniteDuration = 100.milliseconds
   )(implicit ME: MonadError[F, Throwable]): F[Unit] = {
     val request = DescribeTableRequest.builder().tableName(tableName).build()
     for {
-      response <- fromCompletableFuture(() => client.describeTable(request))
+      response <- Async[F].fromCompletableFuture(Sync[F].delay(client.describeTable(request)))
       _ <- response.table().tableStatus() match {
         case TableStatus.ACTIVE => ().pure[F]
         case TableStatus.CREATING | TableStatus.UPDATING =>
-          Timer[F].sleep(pollEveryMs) >> waitForTableCreation(client, tableName, pollEveryMs)
+          Temporal[F].sleep(pollEveryMs) >> waitForTableCreation(client, tableName, pollEveryMs)
         case status =>
           ME.raiseError(
             new Exception(s"Unexpected status ${status.toString()} for table ${tableName}")

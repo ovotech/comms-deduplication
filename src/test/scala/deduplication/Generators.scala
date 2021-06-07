@@ -3,7 +3,6 @@ package com.ovoenergy.comms.deduplication
 import java.time.Instant
 
 import org.scalacheck._
-import org.scalacheck.Gen._
 import org.scalacheck.Arbitrary._
 
 import model._

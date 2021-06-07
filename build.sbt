@@ -3,11 +3,11 @@ import sbtrelease.ReleaseStateTransformations._
 import sbtrelease.tagsonly.TagsOnly._
 
 val catsVersion = "2.6.1"
-val catsEffectVersion = "2.5.1"
+val catsEffectVersion = "3.1.1"
 val slf4jVersion = "1.7.30"
 val scalaJava8CompatVersion = "0.9.1"
 val awsSdkVersion = "2.16.75"
-val log4CatsVersion = "1.1.1"
+val log4CatsVersion = "2.1.1"
 val munitVersion = "0.7.26"
 val logBackVersion = "1.2.3"
 
@@ -81,8 +81,8 @@ lazy val deduplication = (project in file("."))
       "org.typelevel" %% "cats-effect" % catsEffectVersion,
       "org.scala-lang.modules" %% "scala-java8-compat" % scalaJava8CompatVersion,
       "software.amazon.awssdk" % "dynamodb" % awsSdkVersion,
-      "io.chrisdavenport" %% "log4cats-core" % log4CatsVersion,
-      "io.chrisdavenport" %% "log4cats-slf4j" % log4CatsVersion,
+      "org.typelevel" %% "log4cats-core" % log4CatsVersion,
+      "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion,
       "org.slf4j" % "slf4j-api" % slf4jVersion,
       "org.typelevel" %% "cats-effect-laws" % catsEffectVersion % Test,
       "org.slf4j" % "jcl-over-slf4j" % slf4jVersion % IntegrationTest,

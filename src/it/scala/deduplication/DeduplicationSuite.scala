@@ -3,26 +3,25 @@ package com.ovoenergy.comms.deduplication
 import java.util.UUID
 import java.util.concurrent.TimeoutException
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
-import cats.effect._
-import cats.effect.concurrent._
 import cats.implicits._
 
 import munit._
 
 import model._
-import Config._
 import org.scalacheck.Arbitrary
 
 import com.ovoenergy.comms.deduplication.TestUtils._
+import cats.effect.kernel.Resource
+import cats.effect.IO
+import cats.effect.kernel.Ref
+import cats.effect.unsafe.IORuntime
+import Config._
 
 class DeduplicationSuite extends FunSuite {
 
-  implicit val ec = ExecutionContext.global
-  implicit val contextShift = IO.contextShift(ec)
-  implicit val timer: Timer[IO] = IO.timer(ec)
+  implicit val runtime = IORuntime.global
 
   override def munitValueTransforms = super.munitValueTransforms ++ List(
     new ValueTransform("IO", {

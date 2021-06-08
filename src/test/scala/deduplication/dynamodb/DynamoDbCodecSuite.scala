@@ -5,11 +5,8 @@ import java.{util => ju}
 import java.time.Instant
 import scala.reflect.ClassTag
 
-import cats.implicits._
-
 import software.amazon.awssdk.services.dynamodb.model._
 
-import org.scalacheck.Gen
 import org.scalacheck.Arbitrary
 import org.scalacheck.Prop._
 

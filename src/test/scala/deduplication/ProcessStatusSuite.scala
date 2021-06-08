@@ -6,8 +6,6 @@ import java.time.Instant
 import scala.concurrent.duration._
 
 import cats.implicits._
-import cats.effect._
-import cats.effect.laws.util._
 
 import org.scalacheck.Prop._
 

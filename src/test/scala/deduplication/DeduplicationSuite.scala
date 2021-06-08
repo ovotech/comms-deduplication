@@ -4,26 +4,21 @@ import java.time.Instant
 import java.{util => ju}
 import java.util.UUID
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 import cats.implicits._
-import cats.effect._
-import cats.effect.laws.util.TestContext
 
 import munit._
 import org.scalacheck.Arbitrary
 
 import model._
 import Config._
+import cats.effect.unsafe.IORuntime
+import cats.effect.IO
 
 class DeduplicationSuite extends FunSuite {
 
-  private val testContext = TestContext()
-
-  implicit val ec: ExecutionContext = testContext
-  implicit val contextShift: ContextShift[IO] = testContext.ioContextShift
-  implicit val timer: Timer[IO] = testContext.ioTimer
+  implicit val runtime = IORuntime.global
 
   override def munitValueTransforms = super.munitValueTransforms ++ List(
     new ValueTransform("IO", {
@@ -96,7 +91,7 @@ class DeduplicationSuite extends FunSuite {
             processorId: ju.UUID,
             now: Instant
         ): IO[Option[Process[UUID, UUID]]] = {
-          Deduplication.nowF[IO].map { now =>
+          IO.realTimeInstant.map { now =>
             Process(
               id = id,
               processorId = processorId,
@@ -138,7 +133,7 @@ class DeduplicationSuite extends FunSuite {
             processorId: ju.UUID,
             now: Instant
         ): IO[Option[Process[UUID, UUID]]] = {
-          Deduplication.nowF[IO].map { now =>
+          IO.realTimeInstant.map { now =>
             Process(
               id = id,
               processorId = processorId,
@@ -180,7 +175,7 @@ class DeduplicationSuite extends FunSuite {
             processorId: ju.UUID,
             now: Instant
         ): IO[Option[Process[UUID, UUID]]] = {
-          Deduplication.nowF[IO].map { now =>
+          IO.realTimeInstant.map { now =>
             Process(
               id = id,
               processorId = processorId,
@@ -222,7 +217,7 @@ class DeduplicationSuite extends FunSuite {
             processorId: ju.UUID,
             now: Instant
         ): IO[Option[Process[UUID, UUID]]] = {
-          Deduplication.nowF[IO].map { now =>
+          IO.realTimeInstant.map { now =>
             Process(
               id = id,
               processorId = processorId,

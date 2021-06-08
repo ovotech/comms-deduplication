@@ -1,11 +1,7 @@
 package com.ovoenergy.comms.deduplication
 
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import java.time.Instant
-
-import scala.concurrent.ExecutionContext
-import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
 
 import cats.effect._
@@ -17,18 +13,15 @@ import org.scalacheck.Arbitrary
 import software.amazon.awssdk.services.dynamodb.{model => _, _}
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
-import software.amazon.awssdk.services.dynamodb.model.GetItemResponse
 
 import com.ovoenergy.comms.deduplication.TestUtils._
 import com.ovoenergy.comms.deduplication.dynamodb.DynamoDbConfig
 import com.ovoenergy.comms.deduplication.dynamodb.DynamoDbProcessRepo
-import com.ovoenergy.comms.deduplication.utils._
+import cats.effect.unsafe.IORuntime
 
 class DynamoDbProcessRepoSuite extends FunSuite {
 
-  implicit val ec = ExecutionContext.global
-  implicit val contextShift = IO.contextShift(ec)
-  implicit val timer: Timer[IO] = IO.timer(ec)
+  implicit val runtime = IORuntime.global
 
   override def munitValueTransforms = super.munitValueTransforms ++ List(
     new ValueTransform("IO", {
@@ -48,7 +41,7 @@ class DynamoDbProcessRepoSuite extends FunSuite {
       for {
         id <- given[UUID]
         processorId <- given[UUID]
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli)
+        now <- Clock[IO].realTimeInstant
         _ <- resources.processRepoR.startProcessingUpdate(
           id = id,
           processorId = processorId,
@@ -66,7 +59,7 @@ class DynamoDbProcessRepoSuite extends FunSuite {
       for {
         id <- given[UUID]
         processorId <- given[UUID]
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli)
+        now <- Clock[IO].realTimeInstant
         _ <- resources.processRepoR.startProcessingUpdate(
           id = id,
           processorId = processorId,
@@ -113,7 +106,7 @@ class DynamoDbProcessRepoSuite extends FunSuite {
       for {
         id <- given[UUID]
         processorId <- given[UUID]
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli)
+        now <- Clock[IO].realTimeInstant
         _ <- resources.processRepoR.completeProcess(
           id = id,
           processorId = processorId,
@@ -151,7 +144,7 @@ class DynamoDbProcessRepoSuite extends FunSuite {
       for {
         id <- given[UUID]
         processorId <- given[UUID]
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli)
+        now <- Clock[IO].realTimeInstant
         _ <- resources.processRepoR.startProcessingUpdate(
           id = id,
           processorId = processorId,
@@ -187,10 +180,9 @@ class DynamoDbProcessRepoSuite extends FunSuite {
         .consistentRead(true)
         .build()
 
-      val response = fromCompletableFuture[IO, GetItemResponse] { () =>
+      val response = IO.fromCompletableFuture(IO.delay(
         dynamoclient
-          .getItem(request)
-      }
+          .getItem(request)))
 
       response.map { r =>
         if (r.hasItem()) {

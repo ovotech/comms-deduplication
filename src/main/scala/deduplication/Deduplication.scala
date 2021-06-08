@@ -1,7 +1,6 @@
 package com.ovoenergy.comms.deduplication
 
 import java.time.Instant
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
 import scala.concurrent.duration._
@@ -9,10 +8,13 @@ import scala.compat.java8.DurationConverters._
 
 import cats._
 import cats.implicits._
-import cats.effect._
 
 import com.ovoenergy.comms.deduplication.model._
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
+import cats.effect.Temporal
+import cats.effect.kernel.Clock
+import cats.effect.kernel.Sync
+import cats.effect.kernel.Async
 
 trait Deduplication[F[_], ID, ProcessorID] {
 
@@ -78,11 +80,6 @@ trait Deduplication[F[_], ID, ProcessorID] {
 
 object Deduplication {
 
-  def nowF[F[_]: Functor: Clock] =
-    Clock[F]
-      .realTime(TimeUnit.MILLISECONDS)
-      .map(Instant.ofEpochMilli)
-
   def processStatus(
       maxProcessingTime: FiniteDuration,
       now: Instant
@@ -110,7 +107,7 @@ object Deduplication {
     }
   }
 
-  def apply[F[_]: Sync: Timer, ID, ProcessorID](
+  def apply[F[_]: Async: Clock, ID, ProcessorID](
       repo: ProcessRepo[F, ID, ProcessorID],
       config: Config[ProcessorID]
   ): F[Deduplication[F, ID, ProcessorID]] = Slf4jLogger.create[F].map { logger =>
@@ -131,7 +128,7 @@ object Deduplication {
 
           def nextStep(ps: ProcessStatus): F[Outcome[F]] = ps match {
             case ProcessStatus.Running =>
-              val totalDurationF = nowF[F]
+              val totalDurationF = Clock[F].realTimeInstant
                 .map(now => (now.toEpochMilli - startedAt.toEpochMilli).milliseconds)
 
               val stopRetry = logger.warn(
@@ -142,7 +139,7 @@ object Deduplication {
               val retry = logger.debug(
                 s"Process still running, retry-ing ${logContext}"
               ) >>
-                Timer[F].sleep(pollDelay) >>
+                Temporal[F].sleep(pollDelay) >>
                 doIt(
                   startedAt,
                   pollNo + 1,
@@ -161,7 +158,7 @@ object Deduplication {
                 )
                 .as {
                   Outcome.New(
-                    nowF[F].flatMap { now =>
+                    Clock[F].realTimeInstant.flatMap { now =>
                       repo.completeProcess(id, config.processorId, now, config.ttl).flatTap { _ =>
                         logger.debug(
                           s"Process marked as completed ${logContext}"
@@ -181,7 +178,7 @@ object Deduplication {
           }
 
           for {
-            now <- nowF[F]
+            now <- Clock[F].realTimeInstant
             processOpt <- repo.startProcessingUpdate(id, config.processorId, now)
             status = processOpt
               .fold[ProcessStatus](ProcessStatus.NotStarted) { p =>
@@ -191,7 +188,7 @@ object Deduplication {
           } yield sample
         }
 
-        nowF[F].flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
+        Clock[F].realTimeInstant.flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
       }
 
       override def invalidate(id: ID): F[Unit] = {

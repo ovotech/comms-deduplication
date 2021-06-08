@@ -166,4 +166,4 @@ workflows:
         filters:
           branches:
             only:
-            - master
+              - master-ce3 #Temp branch for allowing 2 master branches (one with Cats Effect 2 and the other with CE3)

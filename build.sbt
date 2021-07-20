@@ -9,7 +9,7 @@ val scalaJava8CompatVersion = "0.9.1"
 val awsSdkVersion = "2.16.101"
 val log4CatsVersion = "1.1.1"
 val munitVersion = "0.7.27"
-val logBackVersion = "1.2.3"
+val logBackVersion = "1.2.4"
 
 lazy val publicArtifactory = "Artifactory Realm" at "https://kaluza.jfrog.io/artifactory/maven"
 

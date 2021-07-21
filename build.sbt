@@ -3,7 +3,7 @@ import sbtrelease.ReleaseStateTransformations._
 import sbtrelease.tagsonly.TagsOnly._
 
 val catsVersion = "2.6.1"
-val catsEffectVersion = "2.5.1"
+val catsEffectVersion = "3.1.1"
 val slf4jVersion = "1.7.32"
 val scalaJava8CompatVersion = "0.9.1"
 val awsSdkVersion = "2.16.104"

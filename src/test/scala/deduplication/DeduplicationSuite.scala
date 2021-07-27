@@ -16,6 +16,7 @@ import org.scalacheck.Arbitrary
 
 import model._
 import Config._
+import cats.effect.Temporal
 
 class DeduplicationSuite extends FunSuite {
 
@@ -23,7 +24,7 @@ class DeduplicationSuite extends FunSuite {
 
   implicit val ec: ExecutionContext = testContext
   implicit val contextShift: ContextShift[IO] = testContext.ioContextShift
-  implicit val timer: Timer[IO] = testContext.ioTimer
+  implicit val timer: Temporal[IO] = testContext.ioTimer
 
   override def munitValueTransforms = super.munitValueTransforms ++ List(
     new ValueTransform("IO", {

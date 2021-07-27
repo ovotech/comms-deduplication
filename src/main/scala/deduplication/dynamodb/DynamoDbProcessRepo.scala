@@ -17,6 +17,7 @@ import software.amazon.awssdk.services.dynamodb.model._
 import software.amazon.awssdk.services.dynamodb._
 
 import com.ovoenergy.comms.deduplication.model._
+import cats.effect.Temporal
 
 object DynamoDbProcessRepo {
 
@@ -58,7 +59,7 @@ object DynamoDbProcessRepo {
     val expiresOn = "expiresOn"
   }
 
-  def resource[F[_]: Concurrent: ContextShift: Timer, ID: DynamoDbDecoder: DynamoDbEncoder, ProcessorID: DynamoDbDecoder: DynamoDbEncoder](
+  def resource[F[_]: Concurrent: ContextShift: Temporal, ID: DynamoDbDecoder: DynamoDbEncoder, ProcessorID: DynamoDbDecoder: DynamoDbEncoder](
       config: DynamoDbConfig
   ): Resource[F, ProcessRepo[F, ID, ProcessorID]] = {
     Resource
@@ -69,7 +70,7 @@ object DynamoDbProcessRepo {
       .map(client => apply(config, client))
   }
 
-  def apply[F[_]: Concurrent: ContextShift: Timer, ID: DynamoDbDecoder: DynamoDbEncoder, ProcessorID: DynamoDbDecoder: DynamoDbEncoder](
+  def apply[F[_]: Concurrent: ContextShift: Temporal, ID: DynamoDbDecoder: DynamoDbEncoder, ProcessorID: DynamoDbDecoder: DynamoDbEncoder](
       config: DynamoDbConfig,
       client: DynamoDbAsyncClient
   ): ProcessRepo[F, ID, ProcessorID] = {

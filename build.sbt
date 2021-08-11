@@ -7,6 +7,7 @@ val catsEffectVersion = "2.5.3"
 val slf4jVersion = "1.7.32"
 val scalaJava8CompatVersion = "0.9.1"
 val awsSdkVersion = "2.17.16"
+val meteorVersion = "0.21.4"
 val log4CatsVersion = "1.1.1"
 val munitVersion = "0.7.28"
 val logBackVersion = "1.2.5"
@@ -81,6 +82,7 @@ lazy val deduplication = (project in file("."))
       "org.typelevel" %% "cats-effect" % catsEffectVersion,
       "org.scala-lang.modules" %% "scala-java8-compat" % scalaJava8CompatVersion,
       "software.amazon.awssdk" % "dynamodb" % awsSdkVersion,
+      "io.github.d2a4u" %% "meteor-awssdk" % meteorVersion,
       "io.chrisdavenport" %% "log4cats-core" % log4CatsVersion,
       "io.chrisdavenport" %% "log4cats-slf4j" % log4CatsVersion,
       "org.slf4j" % "slf4j-api" % slf4jVersion,
@@ -88,6 +90,6 @@ lazy val deduplication = (project in file("."))
       "org.slf4j" % "jcl-over-slf4j" % slf4jVersion % IntegrationTest,
       "org.scalameta" %% "munit" % munitVersion % s"${Test};${IntegrationTest}",
       "org.scalameta" %% "munit-scalacheck" % munitVersion % s"${Test};${IntegrationTest}",
-      "ch.qos.logback" % "logback-classic" % logBackVersion % s"${Test};${IntegrationTest}",
+      "ch.qos.logback" % "logback-classic" % logBackVersion % s"${Test};${IntegrationTest}"
     )
   )

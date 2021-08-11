@@ -14,34 +14,7 @@ import cats.effect._
 import com.ovoenergy.comms.deduplication.model._
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 
-trait Deduplication[F[_], ID, ProcessorID] {
-
-  /**
-    * Try to start a process.
-    *
-    * If the process with the giving id has never started before, this will start a new process and return Outcome.New
-    * If another process with the same id has already completed, this will do nothing and return Outcome.Duplicate
-    * If another process with the same id has already started and timeouted, this will start a new process and return Outcome.New
-    * If another process with the same id is still running, this will wait until it will complete or timeout and return Outcome.Duplicate or Outcome.New
-    *
-    * If markAsComplete fails, the process will likely be duplicated.
-    * If the process takes more time than maxProcessingTime, you may have duplicate if two processes with same ID happen at the same time
-    *
-    * eg
-    * ```
-    * tryStartProcess(id)
-    *   .flatMap {
-    *     case Outcome.New(markAsComplete) =>
-    *       doYourStuff.flatTap(_ => markAsComplete)
-    *     case Outcome.Duplicate() =>
-    *       dontDoYourStuff
-    *   }
-    * ```
-    *
-    * @param id The process id to start
-    * @return An Outcome.New or Outcome.Duplicate. The Outcome.New will contain an effect to complete the just started process.
-    */
-  def tryStartProcess(id: ID): F[Outcome[F]]
+trait Deduplication[F[_], ID, ProcessorID, A] {
 
   /**
     * Do the best effort to ensure a process to be successfully executed only once.
@@ -56,24 +29,7 @@ trait Deduplication[F[_], ID, ProcessorID] {
     * @param ifDuplicate The effect to run if the process is duplicate.
     * @return the result of [[ifNew]] or [[ifDuplicate]].
     */
-  final def protect[A](id: ID, ifNew: F[A], ifDuplicate: F[A])(implicit flatMap: FlatMap[F]): F[A] =
-    tryStartProcess(id)
-      .flatMap {
-        case Outcome.New(markAsComplete) =>
-          ifNew.flatTap(_ => markAsComplete)
-        case Outcome.Duplicate() =>
-          ifDuplicate
-      }
-
-  /**
-    * Invalidate a process.
-    *
-    * If the process exists, the record is deleted.
-    *
-    * @param id The process id to invalidate
-    * @return Unit
-    */
-  def invalidate(id: ID): F[Unit]
+  def protect(id: ID, process: F[A]): F[A]
 }
 
 object Deduplication {
@@ -83,124 +39,107 @@ object Deduplication {
       .realTime(TimeUnit.MILLISECONDS)
       .map(Instant.ofEpochMilli)
 
-  def processStatus(
+  def processStatus[A](
       maxProcessingTime: FiniteDuration,
       now: Instant
-  )(p: Process[_, _]): ProcessStatus = {
+  )(p: Option[Process[_, _, A]]): ProcessStatus[A] = {
 
-    val isCompleted =
-      p.completedAt.isDefined
+    p.fold[ProcessStatus[A]](ProcessStatus.NotStarted()) { p =>
+      val isExpired = p.expiresOn
+        .exists(_.isBefore(now))
 
-    val isExpired = p.expiresOn
-      .map(_.instant)
-      .exists(_.isBefore(now))
+      val isTimeout = p.startedAt
+        .plus(maxProcessingTime.toJava)
+        .isBefore(now)
 
-    val isTimeout = p.startedAt
-      .plus(maxProcessingTime.toJava)
-      .isBefore(now)
-
-    if (isExpired) {
-      ProcessStatus.Expired
-    } else if (isCompleted) {
-      ProcessStatus.Completed
-    } else if (isTimeout) {
-      ProcessStatus.Timeout
-    } else {
-      ProcessStatus.Running
+      if (isExpired) {
+        ProcessStatus.Expired(p.startedAt)
+      } else if (isTimeout) {
+        ProcessStatus.Timeout(p.startedAt)
+      } else {
+        p.result match {
+          case Some(result) => ProcessStatus.Completed(result)
+          case None => ProcessStatus.Running()
+        }
+      }
     }
   }
 
-  def apply[F[_]: Sync: Timer, ID, ProcessorID](
-      repo: ProcessRepo[F, ID, ProcessorID],
+  def apply[F[_]: Sync: Timer, ID, ProcessorID, A](
+      processRepo: ProcessRepo[F, ID, ProcessorID, A],
       config: Config[ProcessorID]
-  ): F[Deduplication[F, ID, ProcessorID]] = Slf4jLogger.create[F].map { logger =>
-    new Deduplication[F, ID, ProcessorID] {
+  ): F[Deduplication[F, ID, ProcessorID, A]] = Slf4jLogger.create[F].map { logger =>
+    new Deduplication[F, ID, ProcessorID, A] {
 
-      override def tryStartProcess(id: ID): F[Outcome[F]] = {
+      override def protect(id: ID, fa: F[A]): F[A] =
+        for {
+          now <- nowF[F]
+          existingProcess <- processRepo.create(id, config.processorId, Instant.now())
+          result <- handleScenarios(id, fa, existingProcess, now, config.pollStrategy.initialDelay)
+        } yield result
 
-        val pollStrategy = config.pollStrategy
+      private def handleScenarios(
+          id: ID,
+          fa: F[A],
+          existingProcess: Option[Process[ID, ProcessorID, A]],
+          pollingStartedAt: Instant,
+          pollDelay: FiniteDuration,
+          attemptNumber: Int = 1
+      ): F[A] = {
 
-        def doIt(
-            startedAt: Instant,
-            pollNo: Int,
-            pollDelay: FiniteDuration
-        ): F[Outcome[F]] = {
-
-          def logContext =
-            s"processorId=${config.processorId}, id=${id}, startedAt=${startedAt}, pollNo=${pollNo}"
-
-          def nextStep(ps: ProcessStatus): F[Outcome[F]] = ps match {
-            case ProcessStatus.Running =>
-              val totalDurationF = nowF[F]
-                .map(now => (now.toEpochMilli - startedAt.toEpochMilli).milliseconds)
-
-              val stopRetry = logger.warn(
-                s"Process still running, stop retry-ing ${logContext}"
-              ) >> Sync[F]
-                .raiseError[Outcome[F]](new TimeoutException(s"Stop polling after ${pollNo} polls"))
-
-              val retry = logger.debug(
-                s"Process still running, retry-ing ${logContext}"
-              ) >>
-                Timer[F].sleep(pollDelay) >>
-                doIt(
-                  startedAt,
-                  pollNo + 1,
-                  config.pollStrategy.nextDelay(pollNo, pollDelay)
-                )
-
-              // retry until it is either Completed or Timeout
-              totalDurationF
-                .map(td => td >= pollStrategy.maxPollDuration)
-                .ifM(stopRetry, retry)
-
-            case ProcessStatus.NotStarted | ProcessStatus.Timeout | ProcessStatus.Expired =>
-              logger
-                .debug(
-                  s"Process status is ${ps}, starting now ${logContext}"
-                )
-                .as {
-                  Outcome.New(
-                    nowF[F].flatMap { now =>
-                      repo.completeProcess(id, config.processorId, now, config.ttl).flatTap { _ =>
-                        logger.debug(
-                          s"Process marked as completed ${logContext}"
-                        )
-                      }
-                    }
-                  )
-                }
-                .widen[Outcome[F]]
-
-            case ProcessStatus.Completed =>
-              logger
-                .debug(
-                  s"Process is duplicated processorId=${config.processorId}, id=${id}, startedAt=${startedAt}"
-                )
-                .as(Outcome.Duplicate())
-          }
-
+        def waitAndRetry: F[A] =
           for {
-            now <- nowF[F]
-            processOpt <- repo.startProcessingUpdate(id, config.processorId, now)
-            status = processOpt
-              .fold[ProcessStatus](ProcessStatus.NotStarted) { p =>
-                processStatus(config.maxProcessingTime, now)(p)
-              }
-            sample <- nextStep(status)
-          } yield sample
-        }
+            _ <- Timer[F].sleep(pollDelay)
+            updatedProcess <- processRepo.get(id, config.processorId)
+            nextDelay = config.pollStrategy.nextDelay(attemptNumber, pollDelay)
+            result <- handleScenarios(
+              id,
+              fa,
+              updatedProcess,
+              pollingStartedAt,
+              nextDelay,
+              attemptNumber + 1
+            )
+          } yield result
 
-        nowF[F].flatMap(now => doIt(now, 0, pollStrategy.initialDelay))
+        def attemptReplacingProcesss(oldStartedAt: Instant, newStartedAt: Instant): F[A] =
+          processRepo
+            .attemptReplacing(id, config.processorId, oldStartedAt, newStartedAt)
+            .flatMap {
+              case ProcessRepo.AttemptSucceded => runProcess(id, fa)
+              case ProcessRepo.AttemptFailed => waitAndRetry
+            }
+
+        def logContext: String =
+          s"processorId=${config.processorId}, id=${id}, startedAt=${pollingStartedAt}, pollNo=${attemptNumber}"
+
+        val stopRetry: F[A] =
+          logger.warn(
+            s"Process still running, stop retry-ing ${logContext}"
+          ) >> Sync[F]
+            .raiseError[A](new TimeoutException(s"Stop polling after ${attemptNumber} polls"))
+
+        for {
+          now <- nowF[F]
+          totalDuration = (now.toEpochMilli - pollingStartedAt.toEpochMilli).milliseconds
+          _ <- if (totalDuration >= config.pollStrategy.maxPollDuration) stopRetry else Sync[F].unit
+          status = processStatus[A](config.maxProcessingTime, now)(existingProcess)
+          result <- status match {
+            case ProcessStatus.NotStarted() => runProcess(id, fa)
+            case ProcessStatus.Completed(result) => result.pure[F]
+            case ProcessStatus.Running() => waitAndRetry
+            case ProcessStatus.Timeout(oldStartedAt) => attemptReplacingProcesss(oldStartedAt, now)
+            case ProcessStatus.Expired(oldStartedAt) => attemptReplacingProcesss(oldStartedAt, now)
+          }
+        } yield result
       }
 
-      override def invalidate(id: ID): F[Unit] = {
-        repo.invalidateProcess(id, config.processorId).flatTap { _ =>
-          logger.debug(
-            s"Process invalidated processorId=${config.processorId}, id=$id"
-          )
-        }
-      }
+      private def runProcess(id: ID, fa: F[A]): F[A] =
+        for {
+          result <- fa
+          now <- nowF[F]
+          _ <- processRepo.markAsCompleted(id, config.processorId, result, now, config.ttl)
+        } yield result
     }
   }
 

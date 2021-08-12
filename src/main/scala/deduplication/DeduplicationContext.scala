@@ -62,12 +62,12 @@ object DeduplicationContext {
     }
   }
 
-  def apply[F[_]: Sync: Timer, ID, ContextID, A](
+  def apply[F[_]: Sync: Timer, ID, ContextID, Encoded, A](
       id: ContextID,
-      processRepo: ProcessRepo[F, ID, ContextID, A],
+      processRepo: ProcessRepo[F, ID, ContextID, Encoded],
       config: Config,
       logger: Logger[F]
-  ): DeduplicationContext[F, ID, ContextID, A] =
+  )(implicit codec: ResultCodec[Encoded, A]): DeduplicationContext[F, ID, ContextID, A] =
     new DeduplicationContext[F, ID, ContextID, A] {
 
       val contextId = id
@@ -82,7 +82,7 @@ object DeduplicationContext {
       private def handleScenarios(
           id: ID,
           fa: F[A],
-          existingProcess: Option[Process[ID, ContextID, A]],
+          existingProcess: Option[Process[ID, ContextID, Encoded]],
           pollingStartedAt: Instant,
           pollDelay: FiniteDuration,
           attemptNumber: Int = 1
@@ -124,10 +124,10 @@ object DeduplicationContext {
           now <- nowF[F]
           totalDuration = (now.toEpochMilli - pollingStartedAt.toEpochMilli).milliseconds
           _ <- if (totalDuration >= config.pollStrategy.maxPollDuration) stopRetry else Sync[F].unit
-          status = processStatus[A](config.maxProcessingTime, now)(existingProcess)
+          status = processStatus[Encoded](config.maxProcessingTime, now)(existingProcess)
           result <- status match {
             case ProcessStatus.NotStarted() => runProcess(id, fa)
-            case ProcessStatus.Completed(result) => result.pure[F]
+            case ProcessStatus.Completed(result) => Sync[F].fromEither(codec.read(result))
             case ProcessStatus.Running() => waitAndRetry
             case ProcessStatus.Timeout(oldStartedAt) => attemptReplacingProcesss(oldStartedAt, now)
             case ProcessStatus.Expired(oldStartedAt) => attemptReplacingProcesss(oldStartedAt, now)
@@ -139,7 +139,8 @@ object DeduplicationContext {
         for {
           result <- fa
           now <- nowF[F]
-          _ <- processRepo.markAsCompleted(id, contextId, result, now, config.ttl)
+          encodedResult <- Sync[F].fromEither(codec.write(result))
+          _ <- processRepo.markAsCompleted(id, contextId, encodedResult, now, config.ttl)
         } yield result
     }
 

@@ -7,6 +7,7 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 import munit._
 import scala.concurrent.duration._
+import meteor.syntax._
 
 class MeteorProcessRepoSuite extends FunSuite {
 
@@ -24,9 +25,10 @@ class MeteorProcessRepoSuite extends FunSuite {
         contextId2 <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        testResult = "testresult".asAttributeValue
         _ <- repo.create(id, contextId1, now)
         _ <- repo.create(id, contextId2, later)
-        _ <- repo.markAsCompleted(id, contextId2, "testresult", later, none)
+        _ <- repo.markAsCompleted(id, contextId2, testResult, later, none)
         process1 <- repo.get(id, contextId1)
         process2 <- repo.get(id, contextId2)
       } yield {
@@ -34,7 +36,7 @@ class MeteorProcessRepoSuite extends FunSuite {
         assertEquals(clue(process2).isDefined, true)
         assert(clue(process1).exists(_.startedAt.equals(clue(now))))
         assert(clue(process2).exists(_.startedAt.equals(clue(later))))
-        assert(clue(process2).exists(_.result.contains("testresult")))
+        assert(clue(process2).exists(_.result.contains(testResult)))
       }
     }
   }
@@ -94,13 +96,14 @@ class MeteorProcessRepoSuite extends FunSuite {
         contextId <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        testResult = "testresult".asAttributeValue
         _ <- repo.create(id, contextId, now)
-        _ <- repo.markAsCompleted(id, contextId, "testresult", now, 10.seconds.some)
+        _ <- repo.markAsCompleted(id, contextId, testResult, now, 10.seconds.some)
         process <- repo.get(id, contextId)
       } yield {
         val expectedExpiration = Instant.ofEpochMilli(now.toEpochMilli() + 10000)
         assertEquals(clue(process).isDefined, true)
-        assert(clue(process).exists(_.result.contains("testresult")))
+        assert(clue(process).exists(_.result.contains(testResult)))
         assert(clue(process).exists(_.expiresOn.contains(clue(expectedExpiration))))
       }
     }
@@ -113,12 +116,13 @@ class MeteorProcessRepoSuite extends FunSuite {
         contextId <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        testResult = "testresult".asAttributeValue
         _ <- repo.create(id, contextId, now)
-        _ <- repo.markAsCompleted(id, contextId, "testresult", now, none)
+        _ <- repo.markAsCompleted(id, contextId, testResult, now, none)
         process <- repo.get(id, contextId)
       } yield {
         assertEquals(clue(process).isDefined, true)
-        assert(clue(process).exists(_.result.contains("testresult")))
+        assert(clue(process).exists(_.result.contains(testResult)))
         assert(clue(process).exists(_.expiresOn.isEmpty))
       }
     }
@@ -132,7 +136,7 @@ class MeteorProcessRepoSuite extends FunSuite {
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
         _ <- repo.create(id, contextId, now)
-        _ <- repo.markAsCompleted(id, contextId, "testresult", now, none)
+        _ <- repo.markAsCompleted(id, contextId, "123".asAttributeValue, now, none)
         _ <- repo.attemptReplacing(id, contextId, now, later)
         process <- repo.get(id, contextId)
       } yield {
@@ -150,14 +154,15 @@ class MeteorProcessRepoSuite extends FunSuite {
         contextId <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        testResult = "testresult".asAttributeValue
         _ <- repo.create(id, contextId, now)
-        _ <- repo.markAsCompleted(id, contextId, "testresult", now, none)
+        _ <- repo.markAsCompleted(id, contextId, testResult, now, none)
         _ <- repo.attemptReplacing(id, contextId, later, later)
         process <- repo.get(id, contextId)
       } yield {
         assertEquals(clue(process).isDefined, true)
         assert(clue(process).exists(_.startedAt.equals(clue(now))))
-        assert(clue(process).exists(_.result.contains("testresult")))
+        assert(clue(process).exists(_.result.contains(testResult)))
       }
     }
   }

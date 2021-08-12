@@ -8,6 +8,7 @@ import java.util.UUID
 import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext
 import software.amazon.awssdk.services.dynamodb.model.BillingMode
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 
 object DeduplicationTestUtils {
 
@@ -58,7 +59,7 @@ object DeduplicationTestUtils {
 
   val uuidF = IO(UUID.randomUUID())
 
-  val testRepo: Resource[IO, ProcessRepo[IO, String, String, String]] =
+  val testRepo: Resource[IO, ProcessRepo[IO, String, String, AttributeValue]] =
     for {
       uuid <- Resource.eval(uuidF)
       tableName = s"comms-deduplication-test-${uuid}"
@@ -66,9 +67,9 @@ object DeduplicationTestUtils {
       table <- Resource.make[IO, CompositeKeysTable[String, String]](
         IO(println(s"Creating table ${tableName}")) >> createTestTable(client, tableName)
       )(_ => deleteTable(client, tableName))
-    } yield MeteorProcessRepo[IO, String, String, String](client, table, readConsistently = true)
+    } yield MeteorProcessRepo[IO, String, String](client, table, readConsistently = true)
 
-  val testDeduplication: Resource[IO, Deduplication[IO, String, String, String]] =
+  val testDeduplication: Resource[IO, Deduplication[IO, String, String, AttributeValue]] =
     testRepo.evalMap { repo =>
       val config: Config = Config(
         5.seconds,

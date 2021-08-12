@@ -56,8 +56,8 @@ The `expiresOn` allows clean up of old data and duplicate re-runs after some tim
 When the library attempts to start a process, these scenarios can happen:
 
 1) The signal has never been processed previously (no previous record found)
-2) The signal has already been processed previously (`completedAt` is present)
-3) The signal has timed out processing (`completedAt` is absent and `startedAt` + `processingTime` is in the past)
+2) The signal has timed out processing (`completedAt` is absent and `startedAt` + `processingTime` is in the past)
+3) The signal has already been processed previously (`completedAt` is present)
 4) The signal is still being processed (`completedAt` is absent and `startedAt` + `processingTime` is in the future)
 
 In cases (1) and (2) the library allows the signal to be processed. In case (3) the library does not allow the signal to be processed again and in (4) the library waits for the process to either complete or timeout before making any decision.

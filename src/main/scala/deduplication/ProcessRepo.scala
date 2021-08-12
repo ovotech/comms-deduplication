@@ -11,17 +11,17 @@ object ProcessRepo {
   case object AttemptFailed extends AttemptResult
 }
 
-trait ProcessRepo[F[_], ID, ProcessorID, A] {
+trait ProcessRepo[F[_], ID, ContextID, A] {
 
   def create(
       id: ID,
-      processorId: ProcessorID,
+      contextId: ContextID,
       now: Instant
-  ): F[Option[Process[ID, ProcessorID, A]]]
+  ): F[Option[Process[ID, ContextID, A]]]
 
   def markAsCompleted(
       id: ID,
-      processorId: ProcessorID,
+      contextId: ContextID,
       value: A,
       now: Instant,
       ttl: Option[FiniteDuration]
@@ -29,12 +29,12 @@ trait ProcessRepo[F[_], ID, ProcessorID, A] {
 
   def get(
       id: ID,
-      processorId: ProcessorID
-  ): F[Option[Process[ID, ProcessorID, A]]]
+      contextId: ContextID
+  ): F[Option[Process[ID, ContextID, A]]]
 
   def attemptReplacing(
       id: ID,
-      processorId: ProcessorID,
+      contextId: ContextID,
       oldStartedAt: Instant,
       newStartedAt: Instant
   ): F[ProcessRepo.AttemptResult]

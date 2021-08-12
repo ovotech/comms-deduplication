@@ -1,18 +1,18 @@
-package com.ovoenergy.comms.deduplication
-package meteorrepo
+package com.ovoenergy.comms.deduplication.meteor
 
-import munit._
 import cats.effect._
 import cats.implicits._
-import meteor._
-import java.util.UUID
-import org.scalacheck.Arbitrary
-import java.util.concurrent.TimeUnit
+import com.ovoenergy.comms.deduplication.{meteor => _, _}
 import java.time.Instant
-import scala.concurrent.ExecutionContext
-import software.amazon.awssdk.services.dynamodb.model.BillingMode
 import java.time.temporal.TemporalUnit
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import meteor._
+import munit._
+import org.scalacheck.Arbitrary
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
+import software.amazon.awssdk.services.dynamodb.model.BillingMode
 
 class MeteorProcessRepoSuite extends FunSuite {
 
@@ -22,7 +22,7 @@ class MeteorProcessRepoSuite extends FunSuite {
 
   private def createTestTable(client: Client[IO], name: String) = {
     val partitionKey = KeyDef[String]("id", DynamoDbType.S)
-    val sortKey = KeyDef[String]("processorId", DynamoDbType.S)
+    val sortKey = KeyDef[String]("contextId", DynamoDbType.S)
     client
       .createCompositeKeysTable(
         name,
@@ -54,14 +54,37 @@ class MeteorProcessRepoSuite extends FunSuite {
       )(_ => deleteTable(client, tableName))
     } yield MeteorProcessRepo[IO, String, String, String](client, table, readConsistently = true)
 
+  test("should segregate processes by context") {
+    testRepo.use { repo =>
+      for {
+        id <- uuidF.map(_.toString())
+        contextId1 <- uuidF.map(_.toString())
+        contextId2 <- uuidF.map(_.toString())
+        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
+        later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        _ <- repo.create(id, contextId1, now)
+        _ <- repo.create(id, contextId2, later)
+        _ <- repo.markAsCompleted(id, contextId2, "testresult", later, none)
+        process1 <- repo.get(id, contextId1)
+        process2 <- repo.get(id, contextId2)
+      } yield {
+        assertEquals(clue(process1).isDefined, true)
+        assertEquals(clue(process2).isDefined, true)
+        assert(clue(process1).exists(_.startedAt.equals(clue(now))))
+        assert(clue(process2).exists(_.startedAt.equals(clue(later))))
+        assert(clue(process2).exists(_.result.contains("testresult")))
+      }
+    }
+  }
+
   test("`create` should add the record in dynamo") {
     testRepo.use { repo =>
       for {
         id <- uuidF.map(_.toString())
-        processorId <- uuidF.map(_.toString())
+        contextId <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
-        _ <- repo.create(id, processorId, now)
-        process <- repo.get(id, processorId)
+        _ <- repo.create(id, contextId, now)
+        process <- repo.get(id, contextId)
       } yield {
         assertEquals(clue(process).isDefined, true)
         assert(clue(process).exists(_.startedAt.equals(clue(now))))
@@ -73,11 +96,11 @@ class MeteorProcessRepoSuite extends FunSuite {
     testRepo.use { repo =>
       for {
         id <- uuidF.map(_.toString())
-        processorId <- uuidF.map(_.toString())
+        contextId <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
-        _ <- repo.create(id, processorId, now)
-        process <- repo.create(id, processorId, later)
+        _ <- repo.create(id, contextId, now)
+        process <- repo.create(id, contextId, later)
       } yield {
         assertEquals(clue(process).isDefined, true)
         assert(clue(process).exists(_.startedAt.equals(clue(now))))
@@ -89,12 +112,12 @@ class MeteorProcessRepoSuite extends FunSuite {
     testRepo.use { repo =>
       for {
         id <- uuidF.map(_.toString())
-        processorId <- uuidF.map(_.toString())
+        contextId <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
-        _ <- repo.create(id, processorId, now)
-        _ <- repo.create(id, processorId, later)
-        process <- repo.get(id, processorId)
+        _ <- repo.create(id, contextId, now)
+        _ <- repo.create(id, contextId, later)
+        process <- repo.get(id, contextId)
       } yield {
         assertEquals(clue(process).isDefined, true)
         assert(clue(process).exists(_.startedAt.equals(clue(now))))
@@ -106,12 +129,12 @@ class MeteorProcessRepoSuite extends FunSuite {
     testRepo.use { repo =>
       for {
         id <- uuidF.map(_.toString())
-        processorId <- uuidF.map(_.toString())
+        contextId <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
-        _ <- repo.create(id, processorId, now)
-        _ <- repo.markAsCompleted(id, processorId, "testresult", now, 10.seconds.some)
-        process <- repo.get(id, processorId)
+        _ <- repo.create(id, contextId, now)
+        _ <- repo.markAsCompleted(id, contextId, "testresult", now, 10.seconds.some)
+        process <- repo.get(id, contextId)
       } yield {
         val expectedExpiration = Instant.ofEpochMilli(now.toEpochMilli() + 10000)
         assertEquals(clue(process).isDefined, true)
@@ -125,12 +148,12 @@ class MeteorProcessRepoSuite extends FunSuite {
     testRepo.use { repo =>
       for {
         id <- uuidF.map(_.toString())
-        processorId <- uuidF.map(_.toString())
+        contextId <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
-        _ <- repo.create(id, processorId, now)
-        _ <- repo.markAsCompleted(id, processorId, "testresult", now, none)
-        process <- repo.get(id, processorId)
+        _ <- repo.create(id, contextId, now)
+        _ <- repo.markAsCompleted(id, contextId, "testresult", now, none)
+        process <- repo.get(id, contextId)
       } yield {
         assertEquals(clue(process).isDefined, true)
         assert(clue(process).exists(_.result.contains("testresult")))
@@ -143,13 +166,13 @@ class MeteorProcessRepoSuite extends FunSuite {
     testRepo.use { repo =>
       for {
         id <- uuidF.map(_.toString())
-        processorId <- uuidF.map(_.toString())
+        contextId <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
-        _ <- repo.create(id, processorId, now)
-        _ <- repo.markAsCompleted(id, processorId, "testresult", now, none)
-        _ <- repo.attemptReplacing(id, processorId, now, later)
-        process <- repo.get(id, processorId)
+        _ <- repo.create(id, contextId, now)
+        _ <- repo.markAsCompleted(id, contextId, "testresult", now, none)
+        _ <- repo.attemptReplacing(id, contextId, now, later)
+        process <- repo.get(id, contextId)
       } yield {
         assertEquals(clue(process).isDefined, true)
         assert(clue(process).exists(_.startedAt.equals(clue(later))))
@@ -162,13 +185,13 @@ class MeteorProcessRepoSuite extends FunSuite {
     testRepo.use { repo =>
       for {
         id <- uuidF.map(_.toString())
-        processorId <- uuidF.map(_.toString())
+        contextId <- uuidF.map(_.toString())
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
-        _ <- repo.create(id, processorId, now)
-        _ <- repo.markAsCompleted(id, processorId, "testresult", now, none)
-        _ <- repo.attemptReplacing(id, processorId, later, later)
-        process <- repo.get(id, processorId)
+        _ <- repo.create(id, contextId, now)
+        _ <- repo.markAsCompleted(id, contextId, "testresult", now, none)
+        _ <- repo.attemptReplacing(id, contextId, later, later)
+        process <- repo.get(id, contextId)
       } yield {
         assertEquals(clue(process).isDefined, true)
         assert(clue(process).exists(_.startedAt.equals(clue(now))))

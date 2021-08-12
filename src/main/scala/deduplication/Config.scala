@@ -19,8 +19,7 @@ import Config._
   * @param ttl
   * @param pollStrategy
   */
-case class Config[ProcessorID](
-    processorId: ProcessorID,
+case class Config(
     maxProcessingTime: FiniteDuration,
     ttl: Option[FiniteDuration],
     pollStrategy: PollStrategy

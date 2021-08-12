@@ -1,67 +1,38 @@
-package com.ovoenergy.comms.deduplication
-package meteorrepo
+package com.ovoenergy.comms.deduplication.meteor
 
-import com.ovoenergy.comms.deduplication.model._
-import meteor.Client
-import meteor.codec.Codec
-import meteor.syntax._
 import cats.effect._
 import cats.implicits._
+import com.ovoenergy.comms.deduplication.meteor.codecs._
+import com.ovoenergy.comms.deduplication.model._
+import com.ovoenergy.comms.deduplication.{meteor => _, _}
 import java.time.Instant
-import meteor.errors
-import software.amazon.awssdk.services.dynamodb.model.AttributeValue
-import scala.concurrent.duration.FiniteDuration
+import meteor.Client
 import meteor.CompositeKeysTable
 import meteor.Expression
+import meteor.codec.Codec
+import meteor.errors
+import meteor.syntax._
+import scala.concurrent.duration.FiniteDuration
 import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 
 object MeteorProcessRepo {
 
-  object fields {
-    val id = "id"
-    val processorId = "processorId"
-    val startedAt = "startedAt"
-    val expiresOn = "expiresOn"
-    val result = "result"
-  }
-
-  implicit def ProcessCodec[ID: Codec, ProcessorID: Codec, A: Codec]
-      : Codec[Process[ID, ProcessorID, A]] =
-    new Codec[Process[ID, ProcessorID, A]] {
-      def read(av: AttributeValue): Either[errors.DecoderError, Process[ID, ProcessorID, A]] =
-        (
-          av.getAs[ID](fields.id),
-          av.getAs[ProcessorID](fields.processorId),
-          av.getAs[Instant](fields.startedAt),
-          av.getOpt[Instant](fields.expiresOn),
-          av.getOpt[A](fields.result)
-        ).mapN(Process.apply _)
-      def write(process: Process[ID, ProcessorID, A]): AttributeValue =
-        Map(
-          fields.id -> process.id.asAttributeValue,
-          fields.processorId -> process.processorId.asAttributeValue,
-          fields.startedAt -> process.startedAt.asAttributeValue,
-          fields.expiresOn -> process.expiresOn.asAttributeValue,
-          fields.result -> process.result.asAttributeValue
-        ).asAttributeValue
-    }
-
-  def apply[F[_]: Sync, ID: Codec, ProcessorID: Codec, A: Codec](
+  def apply[F[_]: Sync, ID: Codec, ContextID: Codec, A: Codec](
       client: Client[F],
-      table: CompositeKeysTable[ID, ProcessorID],
+      table: CompositeKeysTable[ID, ContextID],
       readConsistently: Boolean = false
-  ): ProcessRepo[F, ID, ProcessorID, A] = new ProcessRepo[F, ID, ProcessorID, A] {
+  ): ProcessRepo[F, ID, ContextID, A] = new ProcessRepo[F, ID, ContextID, A] {
 
     def create(
         id: ID,
-        processorId: ProcessorID,
+        contextId: ContextID,
         now: Instant
-    ): F[Option[Process[ID, ProcessorID, A]]] =
+    ): F[Option[Process[ID, ContextID, A]]] =
       client
-        .update[ID, ProcessorID, Process[ID, ProcessorID, A]](
+        .update[ID, ContextID, Process[ID, ContextID, A]](
           table,
           id,
-          processorId,
+          contextId,
           Expression.apply(
             s"SET #startedAt = if_not_exists(#startedAt, :startedAt)",
             Map("#startedAt" -> fields.startedAt),
@@ -72,16 +43,16 @@ object MeteorProcessRepo {
 
     def markAsCompleted(
         id: ID,
-        processorId: ProcessorID,
+        contextId: ContextID,
         result: A,
         now: Instant,
         ttl: Option[FiniteDuration]
     ): F[Unit] =
       client
-        .update[ID, ProcessorID, Process[ID, ProcessorID, A]](
+        .update[ID, ContextID, Process[ID, ContextID, A]](
           table,
           id,
-          processorId,
+          contextId,
           Expression.apply(
             s"SET #result = :result, #expiresOn = :expiresOn",
             Map(
@@ -101,26 +72,26 @@ object MeteorProcessRepo {
 
     def get(
         id: ID,
-        processorId: ProcessorID
-    ): F[Option[Process[ID, ProcessorID, A]]] =
-      client.get[ID, ProcessorID, Process[ID, ProcessorID, A]](
+        contextId: ContextID
+    ): F[Option[Process[ID, ContextID, A]]] =
+      client.get[ID, ContextID, Process[ID, ContextID, A]](
         table,
         id,
-        processorId,
+        contextId,
         readConsistently
       )
 
     def attemptReplacing(
         id: ID,
-        processorId: ProcessorID,
+        contextId: ContextID,
         oldStartedAt: Instant,
         newStartedAt: Instant
     ): F[ProcessRepo.AttemptResult] =
       client
-        .update[ID, ProcessorID, Process[ID, ProcessorID, A]](
+        .update[ID, ContextID, Process[ID, ContextID, A]](
           table,
           id,
-          processorId,
+          contextId,
           Expression.apply(
             s"SET #startedAt = :newStartedAt REMOVE #result",
             Map("#startedAt" -> fields.startedAt, "#result" -> fields.result),

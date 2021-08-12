@@ -26,9 +26,9 @@ object model {
   }
 
   case class Expiration(instant: Instant)
-  case class Process[ID, ProcessorID, A](
+  case class Process[ID, ContextID, A](
       id: ID,
-      processorId: ProcessorID,
+      contextId: ContextID,
       startedAt: Instant,
       expiresOn: Option[Instant],
       result: Option[A]

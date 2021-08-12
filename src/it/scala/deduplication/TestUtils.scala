@@ -1,118 +1,81 @@
-// package com.ovoenergy.comms.deduplication
+package com.ovoenergy.comms.deduplication
 
-// import scala.jdk.CollectionConverters._
-// import scala.util.control.NonFatal
-// import scala.concurrent.duration._
+import _root_.meteor._
+import cats.effect._
+import cats.implicits._
+import com.ovoenergy.comms.deduplication.meteor._
+import java.util.UUID
+import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext
+import software.amazon.awssdk.services.dynamodb.model.BillingMode
 
-// import java.util.UUID
+object DeduplicationTestUtils {
 
-// import cats._
-// import cats.effect._
-// import cats.implicits._
+  implicit val ec = ExecutionContext.global
+  implicit val contextShift = IO.contextShift(ec)
+  implicit val timer: Timer[IO] = IO.timer(ec)
 
-// import software.amazon.awssdk.services.dynamodb.model._
-// import software.amazon.awssdk.services.dynamodb.{model => _, _}
+  trait TestProcess {
+    def started: Boolean
+    def completed: Boolean
+    def run: IO[String]
+  }
 
-// import com.ovoenergy.comms.deduplication.dynamodb._
-// import com.ovoenergy.comms.deduplication.utils._
+  object TestProcess {
+    def apply(result: Option[String], delay: FiniteDuration = 0.seconds): IO[TestProcess] =
+      IO.delay {
+        var hasStarted: Boolean = false
+        var hasCompleted: Boolean = false
+        new TestProcess {
+          def started = hasStarted
+          def completed = hasCompleted
+          def run =
+            IO.delay { hasStarted = true } >>
+              IO.sleep(delay) >>
+              result.fold(IO.raiseError[String](new Exception("Process failure"))) { res =>
+                IO.delay { hasCompleted = true } >>
+                  IO.delay(res)
+              }
+        }
+      }
+  }
 
-// package object TestUtils {
+  def createTestTable(client: Client[IO], name: String) = {
+    val partitionKey = KeyDef[String]("id", DynamoDbType.S)
+    val sortKey = KeyDef[String]("contextId", DynamoDbType.S)
+    client
+      .createCompositeKeysTable(
+        name,
+        partitionKey,
+        sortKey,
+        BillingMode.PAY_PER_REQUEST
+      )
+      .map(_ => CompositeKeysTable(name, partitionKey, sortKey))
+  }
 
-//   def processRepoResource[F[_]: Concurrent: ContextShift: Timer]
-//       : Resource[F, ProcessRepo[F, UUID, UUID]] =
-//     for {
-//       dynamoclient <- dynamoClientResource[F]
-//       tableName <- Resource.eval(randomTableName)
-//       table <- tableResource[F](dynamoclient, tableName)
-//     } yield DynamoDbProcessRepo[F, UUID, UUID](
-//       DynamoDbConfig(DynamoDbConfig.TableName(table)),
-//       dynamoclient
-//     )
+  def deleteTable(client: Client[IO], name: String) =
+    client.deleteTable(name)
 
-//   def tableResource[F[_]: Concurrent: Timer](
-//       client: DynamoDbAsyncClient,
-//       tableName: String
-//   ): Resource[F, String] =
-//     Resource.make(createTable(client, tableName))(deleteTable(client, _))
+  val uuidF = IO(UUID.randomUUID())
 
-//   def createTable[F[_]: Concurrent: Timer](
-//       client: DynamoDbAsyncClient,
-//       tableName: String
-//   ): F[String] = {
-//     val createTableRequest =
-//       CreateTableRequest
-//         .builder()
-//         .tableName(tableName)
-//         .billingMode(BillingMode.PAY_PER_REQUEST)
-//         .keySchema(
-//           List(
-//             dynamoKey(DynamoDbProcessRepo.field.id, KeyType.HASH),
-//             dynamoKey(DynamoDbProcessRepo.field.processorId, KeyType.RANGE)
-//           ).asJava
-//         )
-//         .attributeDefinitions(
-//           dynamoAttribute(DynamoDbProcessRepo.field.id, ScalarAttributeType.S),
-//           dynamoAttribute(DynamoDbProcessRepo.field.processorId, ScalarAttributeType.S)
-//         )
-//         .build()
-//     fromCompletableFuture[F, CreateTableResponse](() => client.createTable(createTableRequest))
-//       .map(_.tableDescription().tableName())
-//       .flatTap(waitForTableCreation(client, _))
-//       .onError {
-//         case NonFatal(e) => Concurrent[F].delay(println(s"Error creating DynamoDb table: $e"))
-//       }
-//   }
+  val testRepo: Resource[IO, ProcessRepo[IO, String, String, String]] =
+    for {
+      uuid <- Resource.eval(uuidF)
+      tableName = s"comms-deduplication-test-${uuid}"
+      client <- Client.resource[IO]
+      table <- Resource.make[IO, CompositeKeysTable[String, String]](
+        IO(println(s"Creating table ${tableName}")) >> createTestTable(client, tableName)
+      )(_ => deleteTable(client, tableName))
+    } yield MeteorProcessRepo[IO, String, String, String](client, table, readConsistently = true)
 
-//   def deleteTable[F[_]: Concurrent](client: DynamoDbAsyncClient, tableName: String): F[Unit] = {
-//     val deleteTableRequest = DeleteTableRequest.builder().tableName(tableName).build()
-//     fromCompletableFuture[F, DeleteTableResponse](() => client.deleteTable(deleteTableRequest)).void
-//       .onError {
-//         case NonFatal(e) => Concurrent[F].delay(println(s"Error creating DynamoDb table: $e"))
-//       }
-//   }
+  val testDeduplication: Resource[IO, Deduplication[IO, String, String, String]] =
+    testRepo.evalMap { repo =>
+      val config: Config = Config(
+        5.seconds,
+        none,
+        Config.PollStrategy.linear(1.second, 10.seconds)
+      )
+      Deduplication.apply(repo, config)
+    }
 
-//   def waitForTableCreation[F[_]: Concurrent: Timer](
-//       client: DynamoDbAsyncClient,
-//       tableName: String,
-//       pollEveryMs: FiniteDuration = 100.milliseconds
-//   )(implicit ME: MonadError[F, Throwable]): F[Unit] = {
-//     val request = DescribeTableRequest.builder().tableName(tableName).build()
-//     for {
-//       response <- fromCompletableFuture(() => client.describeTable(request))
-//       _ <- response.table().tableStatus() match {
-//         case TableStatus.ACTIVE => ().pure[F]
-//         case TableStatus.CREATING | TableStatus.UPDATING =>
-//           Timer[F].sleep(pollEveryMs) >> waitForTableCreation(client, tableName, pollEveryMs)
-//         case status =>
-//           ME.raiseError(
-//             new Exception(s"Unexpected status ${status.toString()} for table ${tableName}")
-//           )
-//       }
-//     } yield ()
-//   }
-
-//   def dynamoKey(attributeName: String, keyType: KeyType): KeySchemaElement =
-//     KeySchemaElement
-//       .builder()
-//       .attributeName(attributeName)
-//       .keyType(keyType)
-//       .build()
-
-//   def dynamoAttribute(
-//       attributeName: String,
-//       attributeType: ScalarAttributeType
-//   ): AttributeDefinition =
-//     AttributeDefinition
-//       .builder()
-//       .attributeName(attributeName)
-//       .attributeType(attributeType)
-//       .build()
-
-//   def dynamoClientResource[F[_]: Sync]: Resource[F, DynamoDbAsyncClient] =
-//     Resource.make(Sync[F].delay(DynamoDbAsyncClient.builder.build()))(c => Sync[F].delay(c.close()))
-
-//   def randomTableName[F[_]: Sync]: F[String] =
-//     Sync[F].delay(s"comms-deduplication-test-${UUID.randomUUID()}")
-
-// }
-
+}

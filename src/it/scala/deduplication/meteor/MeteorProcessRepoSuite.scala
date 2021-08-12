@@ -2,57 +2,19 @@ package com.ovoenergy.comms.deduplication.meteor
 
 import cats.effect._
 import cats.implicits._
-import com.ovoenergy.comms.deduplication.{meteor => _, _}
+import com.ovoenergy.comms.deduplication.DeduplicationTestUtils._
 import java.time.Instant
-import java.time.temporal.TemporalUnit
-import java.util.UUID
 import java.util.concurrent.TimeUnit
-import meteor._
 import munit._
-import org.scalacheck.Arbitrary
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
-import software.amazon.awssdk.services.dynamodb.model.BillingMode
 
 class MeteorProcessRepoSuite extends FunSuite {
-
-  implicit val ec = ExecutionContext.global
-  implicit val contextShift = IO.contextShift(ec)
-  implicit val timer: Timer[IO] = IO.timer(ec)
-
-  private def createTestTable(client: Client[IO], name: String) = {
-    val partitionKey = KeyDef[String]("id", DynamoDbType.S)
-    val sortKey = KeyDef[String]("contextId", DynamoDbType.S)
-    client
-      .createCompositeKeysTable(
-        name,
-        partitionKey,
-        sortKey,
-        BillingMode.PAY_PER_REQUEST
-      )
-      .map(_ => CompositeKeysTable(name, partitionKey, sortKey))
-  }
-
-  private def deleteTable(client: Client[IO], name: String) =
-    client.deleteTable(name)
 
   override def munitValueTransforms = super.munitValueTransforms ++ List(
     new ValueTransform("IO", {
       case io: IO[_] => io.unsafeToFuture()
     })
   )
-
-  val uuidF = IO(UUID.randomUUID())
-
-  val testRepo: Resource[IO, ProcessRepo[IO, String, String, String]] =
-    for {
-      uuid <- Resource.eval(uuidF)
-      tableName = s"comms-deduplication-test-${uuid}"
-      client <- Client.resource[IO]
-      table <- Resource.make[IO, CompositeKeysTable[String, String]](
-        IO(println(s"Creating table ${tableName}")) >> createTestTable(client, tableName)
-      )(_ => deleteTable(client, tableName))
-    } yield MeteorProcessRepo[IO, String, String, String](client, table, readConsistently = true)
 
   test("should segregate processes by context") {
     testRepo.use { repo =>

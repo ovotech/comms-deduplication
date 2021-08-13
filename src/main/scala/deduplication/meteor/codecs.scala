@@ -19,6 +19,23 @@ package object codecs {
     val result = "result"
   }
 
+  // Meteor represents Instants as millisecond timestamps by default.
+  // That could cause Long overflow errors for dates __very__ far in the future.
+  // Use a string ISO-8601 representation instead
+  implicit val InstantCodec: Codec[Instant] =
+    new Codec[Instant] {
+      def read(av: AttributeValue): Either[DecoderError, Instant] =
+        av.as[String].flatMap { str =>
+          Either
+            .catchNonFatal(Instant.parse(str))
+            .left
+            .map(err => DecoderError(err.getMessage(), err.getCause().some))
+        }
+
+      def write(a: Instant): AttributeValue = a.toString().asAttributeValue
+
+    }
+
   implicit def resultCodecFromMeteorCodec[A](
       implicit meteorCodec: Codec[A]
   ): ResultCodec[AttributeValue, A] =

@@ -51,12 +51,15 @@ object DeduplicationContext {
 
       if (isExpired) {
         ProcessStatus.Expired(p.startedAt)
-      } else if (isTimeout) {
-        ProcessStatus.Timeout(p.startedAt)
       } else {
         p.result match {
           case Some(result) => ProcessStatus.Completed(result)
-          case None => ProcessStatus.Running()
+          case None =>
+            if (isTimeout) {
+              ProcessStatus.Timeout(p.startedAt)
+            } else {
+              ProcessStatus.Running()
+            }
         }
       }
     }

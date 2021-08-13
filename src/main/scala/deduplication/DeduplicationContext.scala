@@ -16,9 +16,9 @@ trait DeduplicationContext[F[_], ID, ContextID, A] {
   def contextId: ContextID
 
   /**
-    * Do the best effort to ensure a process to be successfully executed only once.
+    * Do a best effort attempt at ensuring a process [[fa]] is successfully executed only once.
     *
-    * If the process has already runned successfully before, it will return the original result of
+    * If the process has already ran successfully before, it will return the original result of
     * [[fa]]
     * Otherwise, it will run [[fa]].
     *
@@ -30,40 +30,6 @@ trait DeduplicationContext[F[_], ID, ContextID, A] {
 }
 
 object DeduplicationContext {
-
-  def nowF[F[_]: Functor: Clock] =
-    Clock[F]
-      .realTime(TimeUnit.MILLISECONDS)
-      .map(Instant.ofEpochMilli)
-
-  def processStatus[A](
-      maxProcessingTime: FiniteDuration,
-      now: Instant
-  )(p: Option[Process[_, _, A]]): ProcessStatus[A] = {
-
-    p.fold[ProcessStatus[A]](ProcessStatus.NotStarted()) { p =>
-      val isExpired = p.expiresOn
-        .exists(_.isBefore(now))
-
-      val isTimeout = p.startedAt
-        .plus(maxProcessingTime.toJava)
-        .isBefore(now)
-
-      if (isExpired) {
-        ProcessStatus.Expired(p.startedAt)
-      } else {
-        p.result match {
-          case Some(result) => ProcessStatus.Completed(result)
-          case None =>
-            if (isTimeout) {
-              ProcessStatus.Timeout(p.startedAt)
-            } else {
-              ProcessStatus.Running()
-            }
-        }
-      }
-    }
-  }
 
   def apply[F[_]: Sync: Timer, ID, ContextID, Encoded, A](
       id: ContextID,
@@ -146,5 +112,39 @@ object DeduplicationContext {
           _ <- processRepo.markAsCompleted(id, contextId, encodedResult, now, config.ttl)
         } yield result
     }
+
+  def nowF[F[_]: Functor: Clock] =
+    Clock[F]
+      .realTime(TimeUnit.MILLISECONDS)
+      .map(Instant.ofEpochMilli)
+
+  def processStatus[A](
+      maxProcessingTime: FiniteDuration,
+      now: Instant
+  )(p: Option[Process[_, _, A]]): ProcessStatus[A] = {
+
+    p.fold[ProcessStatus[A]](ProcessStatus.NotStarted()) { p =>
+      val isExpired = p.expiresOn
+        .exists(_.isBefore(now))
+
+      val isTimeout = p.startedAt
+        .plus(maxProcessingTime.toJava)
+        .isBefore(now)
+
+      if (isExpired) {
+        ProcessStatus.Expired(p.startedAt)
+      } else {
+        p.result match {
+          case Some(result) => ProcessStatus.Completed(result)
+          case None =>
+            if (isTimeout) {
+              ProcessStatus.Timeout(p.startedAt)
+            } else {
+              ProcessStatus.Running()
+            }
+        }
+      }
+    }
+  }
 
 }

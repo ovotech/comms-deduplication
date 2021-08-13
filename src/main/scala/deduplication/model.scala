@@ -1,6 +1,7 @@
 package com.ovoenergy.comms.deduplication
 
 import java.time.Instant
+import java.util.concurrent.TimeoutException
 
 object model {
 
@@ -15,6 +16,9 @@ object model {
     case class Duplicate[F[_]]() extends Outcome[F]
     case class New[F[_]](markAsComplete: F[Unit]) extends Outcome[F]
   }
+
+  sealed trait DeduplicationError
+  object DeduplicationError {}
 
   sealed trait ProcessStatus[A]
   object ProcessStatus {

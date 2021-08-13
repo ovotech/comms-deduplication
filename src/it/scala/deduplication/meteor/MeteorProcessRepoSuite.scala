@@ -128,7 +128,9 @@ class MeteorProcessRepoSuite extends FunSuite {
     }
   }
 
-  test("`attemptReplacing` should replace the `startedAt` field and remove `result`") {
+  test(
+    "`attemptReplacing` should replace the `startedAt` field and remove `result` and `expiresOn`"
+  ) {
     testRepo.use { repo =>
       for {
         id <- uuidF.map(_.toString())
@@ -136,13 +138,14 @@ class MeteorProcessRepoSuite extends FunSuite {
         now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
         later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
         _ <- repo.create(id, contextId, now)
-        _ <- repo.markAsCompleted(id, contextId, "123".asAttributeValue, now, none)
+        _ <- repo.markAsCompleted(id, contextId, "123".asAttributeValue, now, 30.days.some)
         _ <- repo.attemptReplacing(id, contextId, now, later)
         process <- repo.get(id, contextId)
       } yield {
         assertEquals(clue(process).isDefined, true)
         assert(clue(process).exists(_.startedAt.equals(clue(later))))
         assert(clue(process).exists(_.result.isEmpty))
+        assert(clue(process).exists(_.expiresOn.isEmpty))
       }
     }
   }

@@ -95,8 +95,12 @@ object MeteorProcessRepo {
             id,
             contextId,
             Expression.apply(
-              s"SET #startedAt = :newStartedAt REMOVE #result",
-              Map("#startedAt" -> fields.startedAt, "#result" -> fields.result),
+              s"SET #startedAt = :newStartedAt REMOVE #result, #expiresOn",
+              Map(
+                "#startedAt" -> fields.startedAt,
+                "#result" -> fields.result,
+                "#expiresOn" -> fields.expiresOn
+              ),
               Map(":newStartedAt" -> newStartedAt.asAttributeValue)
             ),
             Expression.apply(

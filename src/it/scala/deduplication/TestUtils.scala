@@ -9,6 +9,7 @@ import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext
 import software.amazon.awssdk.services.dynamodb.model.BillingMode
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import java.time.Instant
 
 object DeduplicationTestUtils {
 
@@ -17,26 +18,36 @@ object DeduplicationTestUtils {
   implicit val timer: Timer[IO] = IO.timer(ec)
 
   trait TestProcess {
+    def startedAt: Option[Instant]
+    def completedAt: Option[Instant]
     def started: Boolean
     def completed: Boolean
     def run: IO[String]
   }
 
   object TestProcess {
+    case object NoValue extends Throwable
     def apply(result: Option[String], delay: FiniteDuration = 0.seconds): IO[TestProcess] =
       IO.delay {
-        var hasStarted: Boolean = false
-        var hasCompleted: Boolean = false
         new TestProcess {
-          def started = hasStarted
-          def completed = hasCompleted
+          var startedAt: Option[Instant] = none
+          var completedAt: Option[Instant] = none
+          def started = startedAt.isDefined
+          def completed = completedAt.isDefined
           def run =
-            IO.delay { hasStarted = true } >>
-              IO.sleep(delay) >>
-              result.fold(IO.raiseError[String](new Exception("Process failure"))) { res =>
-                IO.delay { hasCompleted = true } >>
-                  IO.delay(res)
+            for {
+              started <- IO.timer(ec).clock.realTime(MILLISECONDS)
+              _ <- IO.delay { startedAt = Instant.ofEpochMilli(started).some }
+              _ <- IO.sleep(delay)
+              res <- result match {
+                case Some(res) =>
+                  for {
+                    completed <- IO.timer(ec).clock.realTime(MILLISECONDS)
+                    _ <- IO.delay { completedAt = Instant.ofEpochMilli(completed).some }
+                  } yield res
+                case None => IO.raiseError[String](NoValue)
               }
+            } yield res
         }
       }
   }
@@ -69,14 +80,15 @@ object DeduplicationTestUtils {
       )(_ => deleteTable(client, tableName))
     } yield MeteorProcessRepo[IO, String, String](client, table, readConsistently = true)
 
-  val testDeduplication: Resource[IO, Deduplication[IO, String, String, AttributeValue]] =
-    testRepo.evalMap { repo =>
-      val config: Config = Config(
-        5.seconds,
-        none,
-        Config.PollStrategy.linear(1.second, 10.seconds)
-      )
-      Deduplication.apply(repo, config)
-    }
+  val defaultPollStrategy = Config.PollStrategy.linear(1.second, 10.seconds)
+
+  def testDeduplication(
+      maxProcessingTime: FiniteDuration = 5.seconds,
+      ttl: Option[FiniteDuration] = none,
+      pollStrategy: Config.PollStrategy = defaultPollStrategy
+  ): Resource[IO, Deduplication[IO, String, String, AttributeValue]] = {
+    val config = Config(maxProcessingTime, ttl, pollStrategy)
+    testRepo.evalMap(Deduplication.apply(_, config))
+  }
 
 }

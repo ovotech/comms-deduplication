@@ -76,8 +76,6 @@ jobs:
 
     - checkout
 
-    - run: docker login --username $OVO_DOCKERHUB_USER --password $OVO_DOCKERHUB_PASSWORD
-
     - restore_sbt_cache
 
     - run: sbt update
@@ -153,7 +151,9 @@ workflows:
     - build:
         context: ovo-internal-public
     - integration_test:
-        context: ovo-internal-public
+        context:
+        - ovo-internal-public
+        - comms-internal-uat
         requires:
         - build
     - publish:

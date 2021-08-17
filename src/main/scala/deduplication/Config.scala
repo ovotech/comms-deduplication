@@ -13,14 +13,11 @@ import Config._
   * this reason is important for the pollStrategy.maxPollDuration to be > maxProcessingTime otherwise the poll
   * will always timeout in case of a stale process.
   *
-  * @param tableName
-  * @param processorId
   * @param maxProcessingTime
   * @param ttl
   * @param pollStrategy
   */
-case class Config[ProcessorID](
-    processorId: ProcessorID,
+case class Config(
     maxProcessingTime: FiniteDuration,
     ttl: Option[FiniteDuration],
     pollStrategy: PollStrategy

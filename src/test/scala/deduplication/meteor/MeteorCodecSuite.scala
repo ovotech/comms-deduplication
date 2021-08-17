@@ -28,7 +28,7 @@ class MeteorCodecSuite extends munit.ScalaCheckSuite {
     property(s"should encode/decode ${classTag.runtimeClass}") {
       val codec = Codec[Process[T, T, AttributeValue]]
       forAll { proc: Process[T, T, T] =>
-        val avProc = proc.copy(
+        val avProc: Process[T, T, AttributeValue] = proc.copy(
           result = proc.result.map(_.asAttributeValue)
         )
         val result = codec.read(codec.write(avProc))

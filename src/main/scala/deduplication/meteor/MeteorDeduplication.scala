@@ -6,10 +6,11 @@ import meteor.CompositeKeysTable
 import meteor.Client
 import cats.effect._
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import cats.effect.Temporal
 
 object MeteorDeduplication {
 
-  def apply[F[_]: Sync: Timer, ID: Codec, ContextID: Codec](
+  def apply[F[_]: Sync: Temporal, ID: Codec, ContextID: Codec](
       client: Client[F],
       table: CompositeKeysTable[ID, ContextID],
       config: Config
@@ -19,7 +20,7 @@ object MeteorDeduplication {
       config
     )
 
-  def resource[F[_]: Sync: Timer, ID: Codec, ContextID: Codec, A: Codec](
+  def resource[F[_]: Sync: Temporal, ID: Codec, ContextID: Codec, A: Codec](
       client: Client[F],
       table: CompositeKeysTable[ID, ContextID],
       config: Config

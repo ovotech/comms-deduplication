@@ -118,6 +118,7 @@ class DeduplicationSuite extends FunSuite {
         proc1 <- TestProcess("p1".some)
         proc2 <- TestProcess("p2".some)
         res1 <- dedup.protect("id", proc1.run)
+        _ <- IO.sleep(10.millis)
         res2 <- dedup.protect("id", proc2.run)
       } yield {
         assert(proc1.started)

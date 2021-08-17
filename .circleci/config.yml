@@ -57,39 +57,21 @@ executors:
       DEFAULT_AWS_REGION: "eu-west-1"
       AWS_REGION: "eu-west-1"
 
-  machine:
-    machine:
-      enabled: true
-      image: circleci/classic:edge
-
-    environment:
-      JAVA_OPTS: "-Xmx1g -Xss2m -XX:MaxMetaspaceSize=1g -XX:MetaspaceSize=1g -XX:+CMSClassUnloadingEnabled"
-      DEFAULT_AWS_REGION: "eu-west-1"
-      AWS_REGION: "eu-west-1"
-
 jobs:
+
   build:
-
     executor: docker
-
     steps:
-
     - checkout
-
     - restore_sbt_cache
-
     - run: sbt update
-
     - store_sbt_cache
-
     - run:
         name: Scalafmt Check
         command: sbt scalafmtCheckAll
-
     - run:
         name: Compile
         command: sbt +test:compile
-
     - persist_to_workspace:
         root: .
         paths: # TODO is there a better way to do this? So that the publish step doesn't have to recompile everything.
@@ -97,72 +79,79 @@ jobs:
         - project/target
         - project/project/target
 
-  integration_test:
-
+  test:
     executor: docker
-
     steps:
-
     - checkout
-
     - run: docker login --username $OVO_DOCKERHUB_USER --password $OVO_DOCKERHUB_PASSWORD
-
     - attach_workspace:
         at: .
-
     - restore_sbt_cache
+    - run:
+        name: Test
+        command: sbt test
+    - store_test_results:
+        path: target/test-reports
 
+
+  integration_test:
+    executor: docker
+    steps:
+    - checkout
+    - run: docker login --username $OVO_DOCKERHUB_USER --password $OVO_DOCKERHUB_PASSWORD
+    - attach_workspace:
+        at: .
+    - restore_sbt_cache
     - run:
         name: Test
         command: sbt it:test
-
     - store_test_results:
         path: target/test-reports
 
   publish:
-
     executor: docker
-
     steps:
     - checkout
-
     - run: docker login --username $OVO_DOCKERHUB_USER --password $OVO_DOCKERHUB_PASSWORD
-
     - attach_workspace:
         at: .
-
     - restore_sbt_cache
-
     - add_github_host_ssh_key
-
     - configure_git_credentials
-
     - run:
         name: Tag Release
         command: build/tag.sh
-
     - run:
         name: Release
         command: sbt +publish
 
 workflows:
+
   build-and-deploy:
     jobs:
+
     - build:
         context: ovo-internal-public
+
+    - test:
+        context: ovo-internal-public
+        requires:
+        - build
+
     - integration_test:
         context:
         - ovo-internal-public
         - comms-internal-uat
         requires:
         - build
+
     - publish:
         context:
         - ovo-internal-public
         - comms-internal-build
         requires:
-        - build
         - integration_test
+        - test
         filters:
           branches:
             only:

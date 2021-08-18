@@ -1,6 +1,8 @@
 package com.ovoenergy.comms.deduplication
 
 import _root_.meteor._
+import _root_.meteor.codec.Encoder
+import _root_.meteor.syntax._
 import cats.effect._
 import cats.implicits._
 import com.ovoenergy.comms.deduplication.meteor._
@@ -10,6 +12,7 @@ import scala.concurrent.ExecutionContext
 import software.amazon.awssdk.services.dynamodb.model.BillingMode
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import java.time.Instant
+import com.ovoenergy.comms.deduplication.meteor.model.EncodedResult
 
 object DeduplicationTestUtils {
 
@@ -70,7 +73,7 @@ object DeduplicationTestUtils {
 
   val uuidF = IO(UUID.randomUUID())
 
-  val testRepo: Resource[IO, ProcessRepo[IO, String, String, AttributeValue]] =
+  val testRepo: Resource[IO, ProcessRepo[IO, String, String, EncodedResult]] =
     for {
       uuid <- Resource.eval(uuidF)
       tableName = s"comms-deduplication-test-${uuid}"
@@ -86,7 +89,7 @@ object DeduplicationTestUtils {
       maxProcessingTime: FiniteDuration = 5.seconds,
       ttl: Option[FiniteDuration] = none,
       pollStrategy: Config.PollStrategy = defaultPollStrategy
-  ): Resource[IO, Deduplication[IO, String, String, AttributeValue]] = {
+  ): Resource[IO, Deduplication[IO, String, String, EncodedResult]] = {
     val config = Config(maxProcessingTime, ttl, pollStrategy)
     testRepo.evalMap(Deduplication.apply(_, config))
   }

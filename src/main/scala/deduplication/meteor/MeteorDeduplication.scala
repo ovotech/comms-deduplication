@@ -1,10 +1,11 @@
-package com.ovoenergy.comms.deduplication.meteor
+package com.ovoenergy.comms.deduplication
+package meteor
 
-import com.ovoenergy.comms.deduplication.{meteor => _, _}
-import meteor.codec.Codec
-import meteor.CompositeKeysTable
-import meteor.Client
+import _root_.meteor.codec.Codec
+import _root_.meteor.CompositeKeysTable
+import _root_.meteor.Client
 import cats.effect._
+import com.ovoenergy.comms.deduplication.meteor.model._
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 
 object MeteorDeduplication {
@@ -13,7 +14,7 @@ object MeteorDeduplication {
       client: Client[F],
       table: CompositeKeysTable[ID, ContextID],
       config: Config
-  ): F[Deduplication[F, ID, ContextID, AttributeValue]] =
+  ): F[Deduplication[F, ID, ContextID, EncodedResult]] =
     Deduplication(
       MeteorProcessRepo(client, table, false),
       config
@@ -23,7 +24,7 @@ object MeteorDeduplication {
       client: Client[F],
       table: CompositeKeysTable[ID, ContextID],
       config: Config
-  ): Resource[F, Deduplication[F, ID, ContextID, AttributeValue]] =
-    Resource.eval[F, Deduplication[F, ID, ContextID, AttributeValue]](apply(client, table, config))
+  ): Resource[F, Deduplication[F, ID, ContextID, EncodedResult]] =
+    Resource.eval[F, Deduplication[F, ID, ContextID, EncodedResult]](apply(client, table, config))
 
 }

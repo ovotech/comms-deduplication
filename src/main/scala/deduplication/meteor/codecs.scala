@@ -1,13 +1,16 @@
-package com.ovoenergy.comms.deduplication.meteor
+package com.ovoenergy.comms.deduplication
+package meteor
 
+import _root_.meteor.codec.Codec
+import _root_.meteor.codec.Decoder
+import _root_.meteor.errors._
+import _root_.meteor.syntax._
 import cats.implicits._
+import com.ovoenergy.comms.deduplication.ResultCodec
+import com.ovoenergy.comms.deduplication.meteor.model._
 import com.ovoenergy.comms.deduplication.model._
 import java.time.Instant
-import meteor.codec.Codec
-import meteor.errors._
-import meteor.syntax._
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
-import com.ovoenergy.comms.deduplication.ResultCodec
 
 package object codecs {
 
@@ -36,40 +39,54 @@ package object codecs {
 
     }
 
+  implicit val EncodedResultMeteorCodec =
+    new Codec[EncodedResult] {
+      def read(av: AttributeValue): Either[DecoderError, EncodedResult] =
+        av.get("value").map(EncodedResult.apply)
+      def write(res: EncodedResult): AttributeValue =
+        Map(
+          "value" -> res.value
+        ).asAttributeValue
+    }
+
   implicit def resultCodecFromMeteorCodec[A](
       implicit meteorCodec: Codec[A]
-  ): ResultCodec[AttributeValue, A] =
-    new ResultCodec[AttributeValue, A] {
-      def read(av: AttributeValue): Either[Throwable, A] = meteorCodec.read(av)
-      def write(a: A): Either[Throwable, AttributeValue] = meteorCodec.write(a).asRight[Throwable]
+  ): ResultCodec[EncodedResult, A] =
+    new ResultCodec[EncodedResult, A] {
+      def read(res: EncodedResult): Either[Throwable, A] = meteorCodec.read(res.value)
+      def write(a: A): Either[Throwable, EncodedResult] =
+        EncodedResult(meteorCodec.write(a)).asRight[Throwable]
     }
 
   implicit val UnitResultCodec =
-    new ResultCodec[AttributeValue, Unit] {
-      def read(a: AttributeValue): Either[Throwable, Unit] = ().asRight[Throwable]
-      def write(b: Unit): Either[Throwable, AttributeValue] =
-        AttributeValue.builder().nul(true).build().asRight[Throwable]
+    new ResultCodec[EncodedResult, Unit] {
+      def read(a: EncodedResult): Either[Throwable, Unit] = ().asRight[Throwable]
+      def write(b: Unit): Either[Throwable, EncodedResult] =
+        EncodedResult(
+          AttributeValue.builder().nul(true).build()
+        ).asRight[Throwable]
     }
 
   implicit def OptionResultCodec[A: Codec] =
-    new ResultCodec[AttributeValue, Option[A]] {
-      def read(av: AttributeValue): Either[Throwable, Option[A]] = av.asOpt[A]
-      def write(a: Option[A]): Either[Throwable, AttributeValue] =
-        a.asAttributeValue.asRight[Throwable]
+    new ResultCodec[EncodedResult, Option[A]] {
+      def read(encoded: EncodedResult): Either[Throwable, Option[A]] = encoded.value.asOpt[A]
+      def write(a: Option[A]): Either[Throwable, EncodedResult] =
+        EncodedResult(a.asAttributeValue).asRight[Throwable]
     }
 
-  implicit def ProcessCodec[ID: Codec, ContextID: Codec]
-      : Codec[Process[ID, ContextID, AttributeValue]] =
-    new Codec[Process[ID, ContextID, AttributeValue]] {
-      def read(av: AttributeValue): Either[DecoderError, Process[ID, ContextID, AttributeValue]] =
+  implicit def ProcessDecoder[ID: Codec, ContextID: Codec]
+      : Codec[Process[ID, ContextID, EncodedResult]] =
+    new Codec[Process[ID, ContextID, EncodedResult]] {
+      def read(av: AttributeValue): Either[DecoderError, Process[ID, ContextID, EncodedResult]] =
         (
           av.getAs[ID](fields.id),
           av.getAs[ContextID](fields.contextId),
           av.getAs[Instant](fields.startedAt),
           av.getOpt[Instant](fields.expiresOn),
-          av.getOpt[AttributeValue](fields.result)
+          av.getOpt[EncodedResult](fields.result)
         ).mapN(Process.apply _)
-      def write(process: Process[ID, ContextID, AttributeValue]): AttributeValue =
+
+      def write(process: Process[ID, ContextID, EncodedResult]): AttributeValue =
         Map(
           fields.id -> process.id.asAttributeValue,
           fields.contextId -> process.contextId.asAttributeValue,

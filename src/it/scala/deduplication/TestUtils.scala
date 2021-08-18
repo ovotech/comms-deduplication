@@ -17,19 +17,19 @@ object DeduplicationTestUtils {
   implicit val contextShift = IO.contextShift(ec)
   implicit val timer: Timer[IO] = IO.timer(ec)
 
-  trait TestProcess {
+  trait TestProcess[A] {
     def startedAt: Option[Instant]
     def completedAt: Option[Instant]
     def started: Boolean
     def completed: Boolean
-    def run: IO[String]
+    def run: IO[A]
   }
 
   object TestProcess {
     case object NoValue extends Throwable
-    def apply(result: Option[String], delay: FiniteDuration = 0.seconds): IO[TestProcess] =
+    def apply[A](result: Option[A], delay: FiniteDuration = 0.seconds): IO[TestProcess[A]] =
       IO.delay {
-        new TestProcess {
+        new TestProcess[A] {
           var startedAt: Option[Instant] = none
           var completedAt: Option[Instant] = none
           def started = startedAt.isDefined
@@ -45,7 +45,7 @@ object DeduplicationTestUtils {
                     completed <- IO.timer(ec).clock.realTime(MILLISECONDS)
                     _ <- IO.delay { completedAt = Instant.ofEpochMilli(completed).some }
                   } yield res
-                case None => IO.raiseError[String](NoValue)
+                case None => IO.raiseError[A](NoValue)
               }
             } yield res
         }

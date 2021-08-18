@@ -44,6 +44,20 @@ package object codecs {
       def write(a: A): Either[Throwable, AttributeValue] = meteorCodec.write(a).asRight[Throwable]
     }
 
+  implicit val UnitResultCodec =
+    new ResultCodec[AttributeValue, Unit] {
+      def read(a: AttributeValue): Either[Throwable, Unit] = ().asRight[Throwable]
+      def write(b: Unit): Either[Throwable, AttributeValue] =
+        AttributeValue.builder().nul(true).build().asRight[Throwable]
+    }
+
+  implicit def OptionResultCodec[A: Codec] =
+    new ResultCodec[AttributeValue, Option[A]] {
+      def read(av: AttributeValue): Either[Throwable, Option[A]] = av.asOpt[A]
+      def write(a: Option[A]): Either[Throwable, AttributeValue] =
+        a.asAttributeValue.asRight[Throwable]
+    }
+
   implicit def ProcessCodec[ID: Codec, ContextID: Codec]
       : Codec[Process[ID, ContextID, AttributeValue]] =
     new Codec[Process[ID, ContextID, AttributeValue]] {

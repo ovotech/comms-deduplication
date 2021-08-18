@@ -1,13 +1,10 @@
 package com.ovoenergy.comms.deduplication
 
+import com.ovoenergy.comms.deduplication.model._
 import java.time.Instant
-
-import org.scalacheck._
-import org.scalacheck.Gen._
-import org.scalacheck.Arbitrary._
-
-import model._
 import java.time.temporal.ChronoUnit
+import org.scalacheck.Arbitrary._
+import org.scalacheck._
 
 object Generators {
 
@@ -19,29 +16,30 @@ object Generators {
     instant <- arbitrary[Instant]
   } yield Expiration(instant)
 
-  implicit def genForProcess[Id: Arbitrary, ProcessorId: Arbitrary]: Gen[Process[Id, ProcessorId]] =
+  implicit def genForProcess[Id: Arbitrary, ContextId: Arbitrary, A: Arbitrary]
+      : Gen[Process[Id, ContextId, A]] =
     for {
       id <- arbitrary[Id]
-      processorId <- arbitrary[ProcessorId]
+      contextId <- arbitrary[ContextId]
+      result <- Gen.option(arbitrary[A])
       startedAt <- arbitrary[Instant]
-      completedAt <- Gen.option(Gen.choose(500, 5000).map(n => startedAt.plusMillis(n)))
       expiresOn <- Gen.option(
-        Gen.choose(7, 90).map(n => startedAt.plus(n, ChronoUnit.DAYS)).map(Expiration(_))
+        Gen.choose(7, 90).map(n => startedAt.plus(n, ChronoUnit.DAYS))
       )
-    } yield Process[Id, ProcessorId](
+    } yield Process[Id, ContextId, A](
       id = id,
-      processorId = processorId,
+      contextId = contextId,
       startedAt = startedAt,
-      completedAt = completedAt,
+      result = result,
       expiresOn = expiresOn
     )
 
-  implicit def genForProcessStatus: Gen[ProcessStatus] = Gen.oneOf(
-    ProcessStatus.Completed,
-    ProcessStatus.Expired,
-    ProcessStatus.NotStarted,
-    ProcessStatus.Running,
-    ProcessStatus.Timeout
+  implicit def genForProcessStatus[A: Arbitrary]: Gen[ProcessStatus[A]] = Gen.oneOf(
+    arbitrary[A].map(ProcessStatus.Completed(_)),
+    arbitrary[Instant].map(ProcessStatus.Expired[A](_)),
+    Gen.const(ProcessStatus.NotStarted[A]()),
+    Gen.const(ProcessStatus.Running[A]()),
+    arbitrary[Instant].map(ProcessStatus.Timeout[A](_))
   )
 
   implicit def arbForGen[A](implicit gen: Gen[A]): Arbitrary[A] = Arbitrary(gen)

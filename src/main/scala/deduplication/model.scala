@@ -1,6 +1,7 @@
 package com.ovoenergy.comms.deduplication
 
 import java.time.Instant
+import java.util.concurrent.TimeoutException
 
 object model {
 
@@ -16,21 +17,24 @@ object model {
     case class New[F[_]](markAsComplete: F[Unit]) extends Outcome[F]
   }
 
-  sealed trait ProcessStatus
+  sealed trait DeduplicationError
+  object DeduplicationError {}
+
+  sealed trait ProcessStatus[A]
   object ProcessStatus {
-    case object NotStarted extends ProcessStatus
-    case object Running extends ProcessStatus
-    case object Completed extends ProcessStatus
-    case object Timeout extends ProcessStatus
-    case object Expired extends ProcessStatus
+    case class NotStarted[A]() extends ProcessStatus[A]
+    case class Running[A]() extends ProcessStatus[A]
+    case class Completed[A](a: A) extends ProcessStatus[A]
+    case class Timeout[A](oldStartedAt: Instant) extends ProcessStatus[A]
+    case class Expired[A](oldStartedAt: Instant) extends ProcessStatus[A]
   }
 
   case class Expiration(instant: Instant)
-  case class Process[ID, ProcessorID](
+  case class Process[ID, ContextID, A](
       id: ID,
-      processorId: ProcessorID,
+      contextId: ContextID,
       startedAt: Instant,
-      completedAt: Option[Instant],
-      expiresOn: Option[Expiration]
+      expiresOn: Option[Instant],
+      result: Option[A]
   )
 }

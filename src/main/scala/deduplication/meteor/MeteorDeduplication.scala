@@ -13,7 +13,7 @@ object MeteorDeduplication {
       client: Client[F],
       table: CompositeKeysTable[ID, ContextID],
       config: Config
-  ): F[Deduplication[F, ID, ContextID, EncodedResult]] =
+  ): F[MeteorDeduplication[F, ID, ContextID]] =
     Deduplication(
       MeteorProcessRepo(client, table, false),
       config
@@ -23,7 +23,7 @@ object MeteorDeduplication {
       client: Client[F],
       table: CompositeKeysTable[ID, ContextID],
       config: Config
-  ): Resource[F, Deduplication[F, ID, ContextID, EncodedResult]] =
+  ): Resource[F, MeteorDeduplication[F, ID, ContextID]] =
     Resource.eval[F, Deduplication[F, ID, ContextID, EncodedResult]](apply(client, table, config))
 
 }

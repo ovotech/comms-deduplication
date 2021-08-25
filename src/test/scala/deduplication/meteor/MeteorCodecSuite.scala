@@ -5,6 +5,7 @@ import _root_.meteor.codec.Codec
 import _root_.meteor.syntax._
 import com.ovoenergy.comms.deduplication.Generators._
 import com.ovoenergy.comms.deduplication.meteor.codecs._
+import com.ovoenergy.comms.deduplication.meteor.model.EncodedResult
 import com.ovoenergy.comms.deduplication.model._
 import java.time.Instant
 import java.{util => ju}
@@ -26,13 +27,13 @@ class MeteorCodecSuite extends munit.ScalaCheckSuite {
       classTag: ClassTag[T]
   ): Unit = {
     property(s"should encode/decode ${classTag.runtimeClass}") {
-      val codec = Codec[Process[T, T, AttributeValue]]
+      val codec = Codec[Process[T, T, EncodedResult]]
       forAll { proc: Process[T, T, T] =>
-        val avProc: Process[T, T, AttributeValue] = proc.copy(
-          result = proc.result.map(_.asAttributeValue)
+        val encProc: Process[T, T, EncodedResult] = proc.copy(
+          result = proc.result.map(v => EncodedResult(v.asAttributeValue))
         )
-        val result = codec.read(codec.write(avProc))
-        assertEquals(result, Right(avProc))
+        val result = codec.read(codec.write(encProc))
+        assertEquals(result, Right(encProc))
       }
     }
   }

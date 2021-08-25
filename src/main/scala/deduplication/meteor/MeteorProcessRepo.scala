@@ -1,20 +1,20 @@
-package com.ovoenergy.comms.deduplication.meteor
+package com.ovoenergy.comms.deduplication
+package meteor
 
 import cats.effect._
 import cats.implicits._
 import com.ovoenergy.comms.deduplication.meteor.codecs._
+import com.ovoenergy.comms.deduplication.meteor.model._
 import com.ovoenergy.comms.deduplication.model._
-import com.ovoenergy.comms.deduplication.{meteor => _, _}
 import java.time.Instant
-import meteor.Client
-import meteor.CompositeKeysTable
-import meteor.Expression
-import meteor.codec.Codec
-import meteor.errors
-import meteor.syntax._
+import _root_.meteor.Client
+import _root_.meteor.CompositeKeysTable
+import _root_.meteor.Expression
+import _root_.meteor.codec.Codec
+import _root_.meteor.errors
+import _root_.meteor.syntax._
 import scala.concurrent.duration.FiniteDuration
 import software.amazon.awssdk.services.dynamodb.model.ReturnValue
-import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 
 object MeteorProcessRepo {
 
@@ -22,16 +22,16 @@ object MeteorProcessRepo {
       client: Client[F],
       table: CompositeKeysTable[ID, ContextID],
       readConsistently: Boolean = false
-  ): ProcessRepo[F, ID, ContextID, AttributeValue] =
-    new ProcessRepo[F, ID, ContextID, AttributeValue] {
+  ): ProcessRepo[F, ID, ContextID, EncodedResult] =
+    new ProcessRepo[F, ID, ContextID, EncodedResult] {
 
       def create(
           id: ID,
           contextId: ContextID,
           now: Instant
-      ): F[Option[Process[ID, ContextID, AttributeValue]]] =
+      ): F[Option[Process[ID, ContextID, EncodedResult]]] =
         client
-          .update[ID, ContextID, Process[ID, ContextID, AttributeValue]](
+          .update[ID, ContextID, Process[ID, ContextID, EncodedResult]](
             table,
             id,
             contextId,
@@ -46,12 +46,12 @@ object MeteorProcessRepo {
       def markAsCompleted(
           id: ID,
           contextId: ContextID,
-          result: AttributeValue,
+          result: EncodedResult,
           now: Instant,
           ttl: Option[FiniteDuration]
       ): F[Unit] =
         client
-          .update[ID, ContextID, Process[ID, ContextID, AttributeValue]](
+          .update[ID, ContextID, Process[ID, ContextID, EncodedResult]](
             table,
             id,
             contextId,
@@ -75,8 +75,8 @@ object MeteorProcessRepo {
       def get(
           id: ID,
           contextId: ContextID
-      ): F[Option[Process[ID, ContextID, AttributeValue]]] =
-        client.get[ID, ContextID, Process[ID, ContextID, AttributeValue]](
+      ): F[Option[Process[ID, ContextID, EncodedResult]]] =
+        client.get[ID, ContextID, Process[ID, ContextID, EncodedResult]](
           table,
           id,
           contextId,
@@ -90,7 +90,7 @@ object MeteorProcessRepo {
           newStartedAt: Instant
       ): F[ProcessRepo.AttemptResult] =
         client
-          .update[ID, ContextID, Process[ID, ContextID, AttributeValue]](
+          .update[ID, ContextID, Process[ID, ContextID, EncodedResult]](
             table,
             id,
             contextId,

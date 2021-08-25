@@ -2,6 +2,7 @@ package com.ovoenergy.comms.deduplication
 
 import cats.effect._
 import cats.implicits._
+import cats.instances._
 import com.ovoenergy.comms.deduplication.DeduplicationTestUtils._
 import com.ovoenergy.comms.deduplication.meteor.codecs._
 import java.util.concurrent.TimeoutException
@@ -29,6 +30,55 @@ class DeduplicationSuite extends FunSuite {
     }
   }
 
+  test(
+    "should be able to tell a non-completed process from a completed one, when the return type is Unit"
+  ) {
+    testDeduplication().map(_.context[Unit]("test")).use { dedup =>
+      for {
+        p1 <- TestProcess[Unit](none, 1.second)
+        p2 <- TestProcess(().some)
+        p3 <- TestProcess(().some)
+        _ <- dedup.protect("id", p1.run).attempt
+        res2 <- dedup.protect("id", p2.run)
+        res3 <- dedup.protect("id", p3.run)
+      } yield {
+        assertEquals(clue(res2), ())
+        assertEquals(clue(res3), ())
+        assert(clue(p1.started))
+        assert(!clue(p1.completed))
+        assert(clue(p2.started))
+        assert(clue(p2.completed))
+        assert(!clue(p3.started))
+        assert(!clue(p3.completed))
+      }
+    }
+  }
+
+  test(
+    "should be able to tell a non-completed process from a completed one, when the return type is Optional"
+  ) {
+    testDeduplication().map(_.context[Option[String]]("test")).use { dedup =>
+      for {
+        p1 <- TestProcess[Option[String]](none, 1.second)
+        p2 <- TestProcess[Option[String]](none.some)
+        p3 <- TestProcess("some_result".some.some)
+        _ <- dedup.protect("id", p1.run).attempt
+        res2 <- dedup.protect("id", p2.run)
+        // the last call to protect should pick up the result from p2 and return none
+        res3 <- dedup.protect("id", p3.run)
+      } yield {
+        assertEquals(clue(res2), none)
+        assertEquals(clue(res3), none)
+        assert(clue(p1.started))
+        assert(!clue(p1.completed))
+        assert(clue(p2.started))
+        assert(clue(p2.completed))
+        assert(!clue(p3.started))
+        assert(!clue(p3.completed))
+      }
+    }
+  }
+
   test("should only let one process start and complete") {
     testDeduplication().map(_.context[String]("test")).use { dedup =>
       for {
@@ -48,7 +98,7 @@ class DeduplicationSuite extends FunSuite {
   test("should only allow one process to take over a stale one") {
     testDeduplication().map(_.context[String]("test")).use { dedup =>
       for {
-        fail <- TestProcess(none, 2.seconds)
+        fail <- TestProcess[String](none, 2.seconds)
         _ <- dedup.protect("id", fail.run).attempt.start
         _ <- IO.sleep(500.millis)
         ps <- List.fill(100)(TestProcess("takeover".some)).sequence
@@ -137,7 +187,7 @@ class DeduplicationSuite extends FunSuite {
       .map(_.context[String]("test"))
       .use { dedup =>
         for {
-          halt <- TestProcess(none)
+          halt <- TestProcess[String](none)
           proc <- TestProcess("result".some)
           protect1 <- dedup.protect("id", halt.run).attempt
           protect2 <- dedup.protect("id", proc.run).attempt

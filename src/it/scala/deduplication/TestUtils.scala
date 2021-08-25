@@ -1,6 +1,8 @@
 package com.ovoenergy.comms.deduplication
 
 import _root_.meteor._
+import _root_.meteor.codec.Encoder
+import _root_.meteor.syntax._
 import cats.effect._
 import cats.implicits._
 import com.ovoenergy.comms.deduplication.meteor._
@@ -10,6 +12,7 @@ import scala.concurrent.ExecutionContext
 import software.amazon.awssdk.services.dynamodb.model.BillingMode
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import java.time.Instant
+import com.ovoenergy.comms.deduplication.meteor.model.EncodedResult
 
 object DeduplicationTestUtils {
 
@@ -17,19 +20,19 @@ object DeduplicationTestUtils {
   implicit val contextShift = IO.contextShift(ec)
   implicit val timer: Timer[IO] = IO.timer(ec)
 
-  trait TestProcess {
+  trait TestProcess[A] {
     def startedAt: Option[Instant]
     def completedAt: Option[Instant]
     def started: Boolean
     def completed: Boolean
-    def run: IO[String]
+    def run: IO[A]
   }
 
   object TestProcess {
     case object NoValue extends Throwable
-    def apply(result: Option[String], delay: FiniteDuration = 0.seconds): IO[TestProcess] =
+    def apply[A](result: Option[A], delay: FiniteDuration = 0.seconds): IO[TestProcess[A]] =
       IO.delay {
-        new TestProcess {
+        new TestProcess[A] {
           var startedAt: Option[Instant] = none
           var completedAt: Option[Instant] = none
           def started = startedAt.isDefined
@@ -45,7 +48,7 @@ object DeduplicationTestUtils {
                     completed <- IO.timer(ec).clock.realTime(MILLISECONDS)
                     _ <- IO.delay { completedAt = Instant.ofEpochMilli(completed).some }
                   } yield res
-                case None => IO.raiseError[String](NoValue)
+                case None => IO.raiseError[A](NoValue)
               }
             } yield res
         }
@@ -70,7 +73,7 @@ object DeduplicationTestUtils {
 
   val uuidF = IO(UUID.randomUUID())
 
-  val testRepo: Resource[IO, ProcessRepo[IO, String, String, AttributeValue]] =
+  val testRepo: Resource[IO, ProcessRepo[IO, String, String, EncodedResult]] =
     for {
       uuid <- Resource.eval(uuidF)
       tableName = s"comms-deduplication-test-${uuid}"
@@ -86,7 +89,7 @@ object DeduplicationTestUtils {
       maxProcessingTime: FiniteDuration = 5.seconds,
       ttl: Option[FiniteDuration] = none,
       pollStrategy: Config.PollStrategy = defaultPollStrategy
-  ): Resource[IO, Deduplication[IO, String, String, AttributeValue]] = {
+  ): Resource[IO, Deduplication[IO, String, String, EncodedResult]] = {
     val config = Config(maxProcessingTime, ttl, pollStrategy)
     testRepo.evalMap(Deduplication.apply(_, config))
   }

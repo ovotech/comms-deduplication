@@ -5,11 +5,11 @@ import sbtrelease.tagsonly.TagsOnly._
 val catsVersion = "2.6.1"
 val catsEffectVersion = "2.5.3"
 val slf4jVersion = "1.7.32"
-val scalaJava8CompatVersion = "1.0.0"
-val awsSdkVersion = "2.17.26"
+val scalaJava8CompatVersion = "0.9.1"
+val awsSdkVersion = "2.17.31"
 val meteorVersion = "0.22.13"
 val log4CatsVersion = "1.1.1"
-val munitVersion = "0.7.28"
+val munitVersion = "0.7.29"
 val logBackVersion = "1.2.5"
 
 lazy val publicArtifactory = "Artifactory Realm" at "https://kaluza.jfrog.io/artifactory/maven"
@@ -49,7 +49,7 @@ lazy val deduplication = (project in file("."))
     initialCommands := s"import com.ovoenergy.comms.deduplication._",
     javacOptions ++= Seq("-Xlint:unchecked", "-Xlint:deprecation"),
     testFrameworks += new TestFramework("munit.Framework"),
-    addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.0" cross CrossVersion.full),
+    addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.1" cross CrossVersion.full),
     scmInfo := Some(
       ScmInfo(
         url("https://github.com/ovotech/comms-deduplication"),

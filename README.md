@@ -128,7 +128,8 @@ dedupResource.use { deduplication =>
     .evalMap { evt =>
       for {
         // Wrap the operations in a protect call
-        // returns the stored result if sendEmail(evt) was already executed in a different thread or process
+        // returns the stored result if sendEmail(evt) was already executed
+        // in a different thread or process
         sendId <- sendEmailCtx.protect(evt.id, sendEmail(evt))
         _ <- storeEmailCtx.protect(evt.id, storeEmail(evt, sendId))
       } yield ()
@@ -202,7 +203,7 @@ them.
 Unsurprisingly, this library doesn't achieve perfect _exactly once_ executions,
 but it makes a best effort at it.
 
-It's purpose is to __limit__ duplication as much as possible while making sure
+Its purpose is to __limit__ duplication as much as possible while making sure
 that all operations are executed _at least once_.
 
 You should still make sure your system is resilient to duplicates.

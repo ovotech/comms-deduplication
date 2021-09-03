@@ -7,8 +7,8 @@ provider "aws" {
 resource "aws_dynamodb_table" "deduplication-table" {
   name           = "deduplication-table"
   hash_key       = "id"
-  range_key      = "processorId"
-  
+  range_key      = "contextId"
+
   billing_mode   = "PAY_PER_REQUEST"
 
   point_in_time_recovery {
@@ -18,14 +18,14 @@ resource "aws_dynamodb_table" "deduplication-table" {
   lifecycle {
     prevent_destroy = true
   }
-  
+
   attribute {
     name = "id"
     type = "S"
   }
-  
+
   attribute {
-    name = "processorId"
+    name = "contextId"
     type = "S"
   }
 

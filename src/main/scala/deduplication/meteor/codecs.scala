@@ -2,7 +2,6 @@ package com.ovoenergy.comms.deduplication
 package meteor
 
 import _root_.meteor.codec.Codec
-import _root_.meteor.codec.Decoder
 import _root_.meteor.errors._
 import _root_.meteor.syntax._
 import cats.implicits._

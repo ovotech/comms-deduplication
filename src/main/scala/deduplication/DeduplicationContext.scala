@@ -27,6 +27,20 @@ trait DeduplicationContext[F[_], ID, ContextID, A] {
     * @return the result of [[fa]]
     */
   def protect(id: ID, fa: F[A]): F[A]
+
+  /**
+    * Do a best effort attempt at ensuring a process [[fa]] is successfully executed only once.
+    *
+    * If the process has already ran successfully before, it will return the original result of
+    * [[fa]]
+    * Otherwise, it will run [[fa]].
+    *
+    * @param id The id of the process to run.
+    * @param fa The effect to run if the process is new.
+    * @param onDeduplicateDetected An effect that's run when a duplicate is detected. It can be useful for logging.
+    * @return the result of [[fa]]
+    */
+  def protect(id: ID, fa: F[A], onDeduplicateDetected: A => F[Unit]): F[A]
 }
 
 object DeduplicationContext {
@@ -42,10 +56,27 @@ object DeduplicationContext {
       val contextId = id
 
       override def protect(id: ID, fa: F[A]): F[A] =
+        protectInternal(id, fa, _ => Applicative[F].unit)
+
+      override def protect(id: ID, fa: F[A], onDuplicateDetected: A => F[Unit]): F[A] =
+        protectInternal(id, fa, onDuplicateDetected)
+
+      private def protectInternal(
+          id: ID,
+          fa: F[A],
+          onDuplicateDetected: A => F[Unit]
+      ): F[A] =
         for {
           now <- nowF[F]
           existingProcess <- processRepo.create(id, contextId, Instant.now())
-          result <- handleScenarios(id, fa, existingProcess, now, config.pollStrategy.initialDelay)
+          result <- handleScenarios(
+            id,
+            fa,
+            existingProcess,
+            now,
+            config.pollStrategy.initialDelay,
+            onDuplicateDetected
+          )
         } yield result
 
       private def handleScenarios(
@@ -54,6 +85,7 @@ object DeduplicationContext {
           existingProcess: Option[Process[ID, ContextID, Encoded]],
           pollingStartedAt: Instant,
           pollDelay: FiniteDuration,
+          onDuplicateDetected: A => F[Unit],
           attemptNumber: Int = 1
       ): F[A] = {
 
@@ -68,6 +100,7 @@ object DeduplicationContext {
               updatedProcess,
               pollingStartedAt,
               nextDelay,
+              onDuplicateDetected,
               attemptNumber + 1
             )
           } yield result
@@ -96,7 +129,8 @@ object DeduplicationContext {
           status = processStatus[Encoded](config.maxProcessingTime, now)(existingProcess)
           result <- status match {
             case ProcessStatus.NotStarted() => runProcess(id, fa)
-            case ProcessStatus.Completed(result) => Sync[F].fromEither(codec.read(result))
+            case ProcessStatus.Completed(result) =>
+              Sync[F].fromEither(codec.read(result)).flatTap(onDuplicateDetected)
             case ProcessStatus.Running() => waitAndRetry
             case ProcessStatus.Timeout(oldStartedAt) => attemptReplacingProcesss(oldStartedAt, now)
             case ProcessStatus.Expired(oldStartedAt) => attemptReplacingProcesss(oldStartedAt, now)

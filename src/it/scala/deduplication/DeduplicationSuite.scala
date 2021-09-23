@@ -8,6 +8,7 @@ import com.ovoenergy.comms.deduplication.meteor.codecs._
 import java.util.concurrent.TimeoutException
 import munit._
 import scala.concurrent.duration._
+import cats.effect.concurrent.Ref
 
 class DeduplicationSuite extends FunSuite {
 
@@ -130,6 +131,23 @@ class DeduplicationSuite extends FunSuite {
         assertEquals(clue(started), 1)
         assertEquals(clue(completed), 1)
         assert(results.forall { res => clue(res) == "result" })
+      }
+    }
+  }
+
+  test("should call a callback when a duplicate is found") {
+    val numberOfProcesses = 100
+    testDeduplication().map(_.context[String]("test")).use { dedup =>
+      for {
+        ps <- List.fill(numberOfProcesses)(TestProcess("result".some)).sequence
+        logState <- Ref.of[IO, Int](0)
+        logFunction = { (_: String) => logState.update(_ + 1) }
+        _ <- ps.parTraverse { p =>
+          dedup.protect("id", p.run, logFunction)
+        }
+        duplicateCount <- logState.get
+      } yield {
+        assertEquals(duplicateCount, numberOfProcesses - 1)
       }
     }
   }

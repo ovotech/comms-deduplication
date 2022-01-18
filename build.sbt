@@ -4,7 +4,7 @@ import sbtrelease.tagsonly.TagsOnly._
 
 val catsVersion = "2.7.0"
 val catsEffectVersion = "2.5.4"
-val slf4jVersion = "1.7.32"
+val slf4jVersion = "1.7.33"
 val scalaJava8CompatVersion = "0.9.1"
 val awsSdkVersion = "2.17.104"
 val meteorVersion = "0.22.13"

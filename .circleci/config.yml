@@ -59,6 +59,13 @@ executors:
 
 jobs:
 
+  job_required_for_mergify:
+    docker:
+      - image: "alpine:latest"
+    steps:
+      - run:
+          command: exit 0
+
   build:
     executor: docker
     steps:
@@ -144,6 +151,15 @@ workflows:
         - comms-internal-uat
         requires:
         - build
+
+    - job_required_for_mergify:
+        requires:
+        - test
+        - integration_test
+        filters:
+          branches:
+            ignore:
+            - master
 
     - publish:
         context:

@@ -24,7 +24,7 @@ object Generators {
       result <- Gen.option(arbitrary[A])
       startedAt <- arbitrary[Instant]
       expiresOn <- Gen.option(
-        Gen.choose(7, 90).map(n => startedAt.plus(n, ChronoUnit.DAYS))
+        Gen.choose(7, 90).map(n => startedAt.plus(n.toLong, ChronoUnit.DAYS))
       )
     } yield Process[Id, ContextId, A](
       id = id,

@@ -41,6 +41,34 @@ trait DeduplicationContext[F[_], ID, ContextID, A] {
     * @return the result of [[fa]]
     */
   def protect(id: ID, fa: F[A], onDeduplicateDetected: A => F[Unit]): F[A]
+
+  /**
+    * Same as `protect`, but returns a F[Result[A]] to inform the caller if a
+    * duplicate was detected.
+    *
+    * Returns F[New[A]] if the process is executed or F[Duplicate[A]] if
+    * the cached value is used.
+    *
+    * @param id The id of the process to run.
+    * @param fa The effect to run if the process is new.
+    * @return the result of [[fa]] wrapped in `Result[_]`.
+    */
+  def protectDetailed(id: ID, fa: F[A]): F[Result[A]]
+
+  /**
+    * Same as `protect`, but returns a F[Result[A]] to inform the caller if a
+    * duplicate was detected.
+    *
+    * Returns F[New[A]] if the process is executed or F[Duplicate[A]] if
+    * the cached value is used.
+    *
+    * @param id The id of the process to run.
+    * @param fa The effect to run if the process is new.
+    * @param onDeduplicateDetected An effect that's run when a duplicate is detected. It can be useful for logging.
+    * @return the result of [[fa]]
+    */
+  def protectDetailed(id: ID, fa: F[A], onDuplicateDetected: A => F[Unit]): F[Result[A]]
+
 }
 
 object DeduplicationContext {
@@ -56,16 +84,19 @@ object DeduplicationContext {
       val contextId = id
 
       override def protect(id: ID, fa: F[A]): F[A] =
-        protectInternal(id, fa, _ => Applicative[F].unit)
+        protectDetailed(id, fa).map(_.value)
 
       override def protect(id: ID, fa: F[A], onDuplicateDetected: A => F[Unit]): F[A] =
-        protectInternal(id, fa, onDuplicateDetected)
+        protectDetailed(id, fa, onDuplicateDetected).map(_.value)
 
-      private def protectInternal(
+      override def protectDetailed(id: ID, fa: F[A]): F[Result[A]] =
+        protectDetailed(id, fa, _ => Applicative[F].unit)
+
+      override def protectDetailed(
           id: ID,
           fa: F[A],
           onDuplicateDetected: A => F[Unit]
-      ): F[A] =
+      ): F[Result[A]] =
         for {
           now <- nowF[F]
           existingProcess <- processRepo.create(id, contextId, Instant.now())
@@ -87,9 +118,9 @@ object DeduplicationContext {
           pollDelay: FiniteDuration,
           onDuplicateDetected: A => F[Unit],
           attemptNumber: Int = 1
-      ): F[A] = {
+      ): F[Result[A]] = {
 
-        def waitAndRetry: F[A] =
+        def waitAndRetry: F[Result[A]] =
           for {
             _ <- Timer[F].sleep(pollDelay)
             updatedProcess <- processRepo.get(id, contextId)
@@ -105,7 +136,7 @@ object DeduplicationContext {
             )
           } yield result
 
-        def attemptReplacingProcesss(oldStartedAt: Instant, newStartedAt: Instant): F[A] =
+        def attemptReplacingProcesss(oldStartedAt: Instant, newStartedAt: Instant): F[Result[A]] =
           processRepo
             .attemptReplacing(id, contextId, oldStartedAt, newStartedAt)
             .flatMap {
@@ -130,7 +161,10 @@ object DeduplicationContext {
           result <- status match {
             case ProcessStatus.NotStarted() => runProcess(id, fa)
             case ProcessStatus.Completed(result) =>
-              Sync[F].fromEither(codec.read(result)).flatTap(onDuplicateDetected)
+              Sync[F]
+                .fromEither(codec.read(result))
+                .flatTap(onDuplicateDetected)
+                .map(Duplicate(_))
             case ProcessStatus.Running() => waitAndRetry
             case ProcessStatus.Timeout(oldStartedAt) => attemptReplacingProcesss(oldStartedAt, now)
             case ProcessStatus.Expired(oldStartedAt) => attemptReplacingProcesss(oldStartedAt, now)
@@ -138,13 +172,13 @@ object DeduplicationContext {
         } yield result
       }
 
-      private def runProcess(id: ID, fa: F[A]): F[A] =
+      private def runProcess(id: ID, fa: F[A]): F[Result[A]] =
         for {
           result <- fa
           now <- nowF[F]
           encodedResult <- Sync[F].fromEither(codec.write(result))
           _ <- processRepo.markAsCompleted(id, contextId, encodedResult, now, config.ttl)
-        } yield result
+        } yield New(result)
     }
 
   def nowF[F[_]: Functor: Clock] =

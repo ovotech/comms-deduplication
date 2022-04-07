@@ -24,4 +24,15 @@ object model {
       expiresOn: Option[Instant],
       result: Option[A]
   )
+
+  sealed trait Result[A] {
+    def value: A
+    def isDuplicate: Boolean
+  }
+  case class New[A](value: A) extends Result[A] {
+    val isDuplicate: Boolean = false
+  }
+  case class Duplicate[A](value: A) extends Result[A] {
+    val isDuplicate: Boolean = true
+  }
 }

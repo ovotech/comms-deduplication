@@ -12,7 +12,6 @@ import java.{util => ju}
 import org.scalacheck.Arbitrary
 import org.scalacheck.Prop._
 import scala.reflect.ClassTag
-import software.amazon.awssdk.services.dynamodb.model._
 
 class MeteorCodecSuite extends munit.ScalaCheckSuite {
 

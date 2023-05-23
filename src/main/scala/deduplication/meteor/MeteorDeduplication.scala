@@ -6,10 +6,11 @@ import _root_.meteor.CompositeKeysTable
 import _root_.meteor.Client
 import cats.effect._
 import com.ovoenergy.comms.deduplication.meteor.model._
+import cats.effect.Temporal
 
 object MeteorDeduplication {
 
-  def apply[F[_]: Sync: Timer, ID: Codec, ContextID: Codec](
+  def apply[F[_]: Sync: Temporal, ID: Codec, ContextID: Codec](
       client: Client[F],
       table: CompositeKeysTable[ID, ContextID],
       config: Config
@@ -19,7 +20,7 @@ object MeteorDeduplication {
       config
     )
 
-  def resource[F[_]: Sync: Timer, ID: Codec, ContextID: Codec](
+  def resource[F[_]: Sync: Temporal, ID: Codec, ContextID: Codec](
       client: Client[F],
       table: CompositeKeysTable[ID, ContextID],
       config: Config

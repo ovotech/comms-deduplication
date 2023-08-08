@@ -10,7 +10,7 @@ val awsSdkVersion = "2.20.121"
 val meteorVersion = "0.22.13"
 val log4CatsVersion = "1.1.1"
 val munitVersion = "0.7.29"
-val logBackVersion = "1.4.8"
+val logBackVersion = "1.4.9"
 
 lazy val publicArtifactory = "Artifactory Realm" at "https://kaluza.jfrog.io/artifactory/maven"
 

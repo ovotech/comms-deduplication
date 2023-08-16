@@ -2,15 +2,15 @@ import sbtrelease.ExtraReleaseCommands
 import sbtrelease.ReleaseStateTransformations._
 import sbtrelease.tagsonly.TagsOnly._
 
-val catsVersion = "2.9.0"
+val catsVersion = "2.10.0"
 val catsEffectVersion = "2.5.5"
 val slf4jVersion = "1.7.36"
-val scalaJava8CompatVersion = "1.0.2"
-val awsSdkVersion = "2.20.121"
+val scalaJava8CompatVersion = "0.9.1"
+val awsSdkVersion = "2.20.126"
 val meteorVersion = "0.22.13"
 val log4CatsVersion = "1.1.1"
 val munitVersion = "0.7.29"
-val logBackVersion = "1.4.9"
+val logBackVersion = "1.4.11"
 
 lazy val publicArtifactory = "Artifactory Realm" at "https://kaluza.jfrog.io/artifactory/maven"
 

@@ -28,6 +28,16 @@ provides these two features:
 - Strong write consistency
 - Upsert with the previous record values returned
 
+## Versions
+
+| Version | Description              |
+|---------|--------------------------|
+| 0.x     | Old logic                |
+| 1.x     | Old logic, Cats Effect 3 |
+| 2.x     | New logic                |
+ | 3.x     | New logic, Cats Effect 3 |
+
+
 ## Add the dependency to your project
 
 You'll need to add our public Maven repository:

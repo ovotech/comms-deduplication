@@ -3,13 +3,21 @@ import sbtrelease.ReleaseStateTransformations._
 import sbtrelease.tagsonly.TagsOnly._
 
 val catsVersion = "2.10.0"
-val catsEffectVersion = "2.5.5"
+
+val catsEffectVersion = "3.5.2"
+
 val slf4jVersion = "1.7.36"
-val scalaJava8CompatVersion = "0.9.1"
+
+val scalaJava8CompatVersion = "1.0.2"
+
 val awsSdkVersion = "2.21.43"
-val meteorVersion = "0.22.13"
-val log4CatsVersion = "1.1.1"
+
+val meteorVersion = "1.0.84"
+
+val log4CatsVersion = "2.6.0"
+
 val munitVersion = "0.7.29"
+
 val logBackVersion = "1.4.14"
 
 lazy val publicArtifactory = "Artifactory Realm" at "https://kaluza.jfrog.io/artifactory/maven"
@@ -43,11 +51,13 @@ lazy val deduplication = (project in file("."))
     organizationHomepage := Some(url("http://www.ovoenergy.com")),
     licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
     scalaVersion := "2.13.9",
-    crossScalaVersions += "2.12.12",
+    crossScalaVersions += "2.12.18",
     scalafmtOnCompile := true,
     scalacOptions -= "-Xfatal-warnings", // enable all options from sbt-tpolecat except fatal warnings
     initialCommands := s"import com.ovoenergy.comms.deduplication._",
     javacOptions ++= Seq("-Xlint:unchecked", "-Xlint:deprecation"),
+    semanticdbEnabled := true,
+    semanticdbVersion := scalafixSemanticdb.revision,
     testFrameworks += new TestFramework("munit.Framework"),
     addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.2" cross CrossVersion.full),
     scmInfo := Some(
@@ -83,8 +93,8 @@ lazy val deduplication = (project in file("."))
       "org.scala-lang.modules" %% "scala-java8-compat" % scalaJava8CompatVersion,
       "software.amazon.awssdk" % "dynamodb" % awsSdkVersion,
       "io.github.d2a4u" %% "meteor-awssdk" % meteorVersion,
-      "io.chrisdavenport" %% "log4cats-core" % log4CatsVersion,
-      "io.chrisdavenport" %% "log4cats-slf4j" % log4CatsVersion,
+      "org.typelevel" %% "log4cats-core" % log4CatsVersion,
+      "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion,
       "org.slf4j" % "slf4j-api" % slf4jVersion,
       "org.typelevel" %% "cats-effect-laws" % catsEffectVersion % Test,
       "org.slf4j" % "jcl-over-slf4j" % slf4jVersion % IntegrationTest,

@@ -4,12 +4,12 @@ import cats._
 import cats.effect._
 import cats.implicits._
 import com.ovoenergy.comms.deduplication.model._
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import java.time.Instant
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import scala.compat.java8.DurationConverters._
 import scala.concurrent.duration._
+import cats.effect.Temporal
 
 trait DeduplicationContext[F[_], ID, ContextID, A] {
 
@@ -73,7 +73,7 @@ trait DeduplicationContext[F[_], ID, ContextID, A] {
 
 object DeduplicationContext {
 
-  def apply[F[_]: Sync: Timer, ID, ContextID, Encoded, A](
+  def apply[F[_]: Async, ID, ContextID, Encoded, A](
       id: ContextID,
       processRepo: ProcessRepo[F, ID, ContextID, Encoded],
       config: Config,
@@ -122,7 +122,7 @@ object DeduplicationContext {
 
         def waitAndRetry: F[Result[A]] =
           for {
-            _ <- Timer[F].sleep(pollDelay)
+            _ <- Temporal[F].sleep(pollDelay)
             updatedProcess <- processRepo.get(id, contextId)
             nextDelay = config.pollStrategy.nextDelay(attemptNumber, pollDelay)
             result <- handleScenarios(
@@ -182,9 +182,8 @@ object DeduplicationContext {
     }
 
   def nowF[F[_]: Functor: Clock] =
-    Clock[F]
-      .realTime(TimeUnit.MILLISECONDS)
-      .map(Instant.ofEpochMilli)
+    Clock[F].realTime
+      .map(d => Instant.ofEpochMilli(d.toMillis))
 
   def processStatus[A](
       maxProcessingTime: FiniteDuration,

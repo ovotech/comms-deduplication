@@ -16,10 +16,6 @@ import com.ovoenergy.comms.deduplication.meteor.model.EncodedResult
 
 object DeduplicationTestUtils {
 
-  implicit val ec = ExecutionContext.global
-  implicit val contextShift = IO.contextShift(ec)
-  implicit val timer: Timer[IO] = IO.timer(ec)
-
   trait TestProcess[A] {
     def startedAt: Option[Instant]
     def completedAt: Option[Instant]
@@ -39,14 +35,14 @@ object DeduplicationTestUtils {
           def completed = completedAt.isDefined
           def run =
             for {
-              started <- IO.timer(ec).clock.realTime(MILLISECONDS)
-              _ <- IO.delay { startedAt = Instant.ofEpochMilli(started).some }
+              started <- Clock[IO].realTime
+              _ <- IO.delay { startedAt = Instant.ofEpochMilli(started.toMillis).some }
               _ <- IO.sleep(delay)
               res <- result match {
                 case Some(res) =>
                   for {
-                    completed <- IO.timer(ec).clock.realTime(MILLISECONDS)
-                    _ <- IO.delay { completedAt = Instant.ofEpochMilli(completed).some }
+                    completed <- Clock[IO].realTime
+                    _ <- IO.delay { completedAt = Instant.ofEpochMilli(completed.toMillis).some }
                   } yield res
                 case None => IO.raiseError[A](NoValue)
               }

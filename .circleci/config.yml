@@ -48,7 +48,7 @@ commands:
 executors:
   docker:
     docker:
-    - image: circleci/openjdk:14.0.2-jdk-buster
+    - image: cimg/openjdk:14.0.2
       auth:
         username: $OVO_DOCKERHUB_USER
         password: $OVO_DOCKERHUB_PASSWORD

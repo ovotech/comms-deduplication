@@ -1,11 +1,11 @@
 package com.ovoenergy.comms.deduplication.meteor
 
+import cats.effect.unsafe.implicits.global
 import cats.effect._
 import cats.implicits._
 import com.ovoenergy.comms.deduplication.DeduplicationTestUtils._
 import com.ovoenergy.comms.deduplication.meteor.model.EncodedResult
 import java.time.Instant
-import java.util.concurrent.TimeUnit
 import meteor.syntax._
 import munit._
 import scala.concurrent.duration._
@@ -24,8 +24,8 @@ class MeteorProcessRepoSuite extends FunSuite {
         id <- uuidF.map(_.toString())
         contextId1 <- uuidF.map(_.toString())
         contextId2 <- uuidF.map(_.toString())
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
-        later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        now <- Clock[IO].realTime.map(d => Instant.ofEpochMilli(d.toMillis))
+        later = Instant.ofEpochMilli(now.toEpochMilli + 1000)
         testResult = EncodedResult("testresult".asAttributeValue)
         _ <- repo.create(id, contextId1, now)
         _ <- repo.create(id, contextId2, later)
@@ -47,7 +47,7 @@ class MeteorProcessRepoSuite extends FunSuite {
       for {
         id <- uuidF.map(_.toString())
         contextId <- uuidF.map(_.toString())
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
+        now <- Clock[IO].realTime.map(d => Instant.ofEpochMilli(d.toMillis))
         _ <- repo.create(id, contextId, now)
         process <- repo.get(id, contextId)
       } yield {
@@ -62,8 +62,8 @@ class MeteorProcessRepoSuite extends FunSuite {
       for {
         id <- uuidF.map(_.toString())
         contextId <- uuidF.map(_.toString())
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
-        later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        now <- Clock[IO].realTime.map(d => Instant.ofEpochMilli(d.toMillis))
+        later = Instant.ofEpochMilli(now.toEpochMilli + 1000)
         _ <- repo.create(id, contextId, now)
         process <- repo.create(id, contextId, later)
       } yield {
@@ -78,8 +78,8 @@ class MeteorProcessRepoSuite extends FunSuite {
       for {
         id <- uuidF.map(_.toString())
         contextId <- uuidF.map(_.toString())
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
-        later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        now <- Clock[IO].realTime.map(d => Instant.ofEpochMilli(d.toMillis))
+        later = Instant.ofEpochMilli(now.toEpochMilli + 1000)
         _ <- repo.create(id, contextId, now)
         _ <- repo.create(id, contextId, later)
         process <- repo.get(id, contextId)
@@ -95,14 +95,14 @@ class MeteorProcessRepoSuite extends FunSuite {
       for {
         id <- uuidF.map(_.toString())
         contextId <- uuidF.map(_.toString())
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
-        later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        now <- Clock[IO].realTime.map(d => Instant.ofEpochMilli(d.toMillis))
+        later = Instant.ofEpochMilli(now.toEpochMilli + 1000)
         testResult = EncodedResult("testresult".asAttributeValue)
         _ <- repo.create(id, contextId, now)
         _ <- repo.markAsCompleted(id, contextId, testResult, now, 10.seconds.some)
         process <- repo.get(id, contextId)
       } yield {
-        val expectedExpiration = Instant.ofEpochMilli(now.toEpochMilli() + 10000)
+        val expectedExpiration = Instant.ofEpochMilli(now.toEpochMilli + 10000)
         assertEquals(clue(process).isDefined, true)
         assert(clue(process).exists(_.result.contains(testResult)))
         assert(clue(process).exists(_.expiresOn.contains(clue(expectedExpiration))))
@@ -115,8 +115,8 @@ class MeteorProcessRepoSuite extends FunSuite {
       for {
         id <- uuidF.map(_.toString())
         contextId <- uuidF.map(_.toString())
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
-        later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        now <- Clock[IO].realTime.map(d => Instant.ofEpochMilli(d.toMillis))
+        later = Instant.ofEpochMilli(now.toEpochMilli + 1000)
         testResult = EncodedResult("testresult".asAttributeValue)
         _ <- repo.create(id, contextId, now)
         _ <- repo.markAsCompleted(id, contextId, testResult, now, none)
@@ -136,8 +136,8 @@ class MeteorProcessRepoSuite extends FunSuite {
       for {
         id <- uuidF.map(_.toString())
         contextId <- uuidF.map(_.toString())
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
-        later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        now <- Clock[IO].realTime.map(d => Instant.ofEpochMilli(d.toMillis))
+        later = Instant.ofEpochMilli(now.toEpochMilli + 1000)
         _ <- repo.create(id, contextId, now)
         _ <- repo.markAsCompleted(
           id,
@@ -162,8 +162,8 @@ class MeteorProcessRepoSuite extends FunSuite {
       for {
         id <- uuidF.map(_.toString())
         contextId <- uuidF.map(_.toString())
-        now <- Clock[IO].realTime(TimeUnit.MILLISECONDS).map(Instant.ofEpochMilli _)
-        later = Instant.ofEpochMilli(now.toEpochMilli() + 1000)
+        now <- Clock[IO].realTime.map(d => Instant.ofEpochMilli(d.toMillis))
+        later = Instant.ofEpochMilli(now.toEpochMilli + 1000)
         testResult = EncodedResult("testresult".asAttributeValue)
         _ <- repo.create(id, contextId, now)
         _ <- repo.markAsCompleted(id, contextId, testResult, now, none)

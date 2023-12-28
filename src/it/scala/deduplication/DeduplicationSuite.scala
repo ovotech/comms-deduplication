@@ -1,6 +1,7 @@
 package com.ovoenergy.comms.deduplication
 
 import cats.effect._
+import cats.effect.unsafe.implicits.global
 import cats.implicits._
 import cats.instances._
 import com.ovoenergy.comms.deduplication.DeduplicationTestUtils._
@@ -8,7 +9,6 @@ import com.ovoenergy.comms.deduplication.meteor.codecs._
 import java.util.concurrent.TimeoutException
 import munit._
 import scala.concurrent.duration._
-import cats.effect.concurrent.Ref
 
 class DeduplicationSuite extends FunSuite {
 

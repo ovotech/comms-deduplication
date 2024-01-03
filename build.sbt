@@ -2,14 +2,21 @@ import sbtrelease.ExtraReleaseCommands
 import sbtrelease.ReleaseStateTransformations._
 import sbtrelease.tagsonly.TagsOnly._
 
-val catsVersion = "2.6.1"
-val catsEffectVersion = "3.1.1"
-val slf4jVersion = "1.7.30"
-val scalaJava8CompatVersion = "0.9.1"
-val awsSdkVersion = "2.16.75"
-val log4CatsVersion = "2.1.1"
-val munitVersion = "0.7.26"
-val logBackVersion = "1.2.3"
+val catsVersion = "2.10.0"
+
+val catsEffectVersion = "3.5.2"
+
+val slf4jVersion = "1.7.36"
+
+val scalaJava8CompatVersion = "1.0.2"
+
+val awsSdkVersion = "2.22.9"
+
+val log4CatsVersion = "2.6.0"
+
+val munitVersion = "0.7.29"
+
+val logBackVersion = "1.4.14"
 
 lazy val publicArtifactory = "Artifactory Realm" at "https://kaluza.jfrog.io/artifactory/maven"
 
@@ -42,13 +49,13 @@ lazy val deduplication = (project in file("."))
     organizationHomepage := Some(url("http://www.ovoenergy.com")),
     licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
     scalaVersion := "2.13.4",
-    crossScalaVersions += "2.12.12",
+    crossScalaVersions += "2.12.18",
     scalafmtOnCompile := true,
     scalacOptions -= "-Xfatal-warnings", // enable all options from sbt-tpolecat except fatal warnings
     initialCommands := s"import com.ovoenergy.comms.deduplication._",
     javacOptions ++= Seq("-Xlint:unchecked", "-Xlint:deprecation"),
     testFrameworks += new TestFramework("munit.Framework"),
-    addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.0" cross CrossVersion.full),
+    addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.2" cross CrossVersion.full),
     scmInfo := Some(
       ScmInfo(
         url("https://github.com/ovotech/comms-deduplication"),

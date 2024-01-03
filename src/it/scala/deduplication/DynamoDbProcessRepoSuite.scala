@@ -2,7 +2,7 @@ package com.ovoenergy.comms.deduplication
 
 import java.util.UUID
 import java.time.Instant
-import scala.jdk.CollectionConverters._
+import scala.collection.JavaConverters._
 
 import cats.effect._
 import cats.implicits._
@@ -59,7 +59,8 @@ class DynamoDbProcessRepoSuite extends FunSuite {
       for {
         id <- given[UUID]
         processorId <- given[UUID]
-        now <- Clock[IO].realTimeInstant
+        nowFDuration <- Clock[IO].realTime
+        now = Instant.ofEpochMilli(nowFDuration.toMillis)
         _ <- resources.processRepoR.startProcessingUpdate(
           id = id,
           processorId = processorId,
@@ -106,7 +107,8 @@ class DynamoDbProcessRepoSuite extends FunSuite {
       for {
         id <- given[UUID]
         processorId <- given[UUID]
-        now <- Clock[IO].realTimeInstant
+        nowFDuration <- Clock[IO].realTime
+        now = Instant.ofEpochMilli(nowFDuration.toMillis)
         _ <- resources.processRepoR.completeProcess(
           id = id,
           processorId = processorId,
@@ -144,7 +146,8 @@ class DynamoDbProcessRepoSuite extends FunSuite {
       for {
         id <- given[UUID]
         processorId <- given[UUID]
-        now <- Clock[IO].realTimeInstant
+        nowFDuration <- Clock[IO].realTime
+        now = Instant.ofEpochMilli(nowFDuration.toMillis)
         _ <- resources.processRepoR.startProcessingUpdate(
           id = id,
           processorId = processorId,

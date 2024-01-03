@@ -1,6 +1,6 @@
 package com.ovoenergy.comms.deduplication
 
-import scala.jdk.CollectionConverters._
+import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 import scala.concurrent.duration._
 

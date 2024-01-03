@@ -2,7 +2,7 @@ package com.ovoenergy.comms.deduplication
 
 import java.util.UUID
 import java.time.Instant
-import scala.jdk.CollectionConverters._
+import scala.collection.JavaConverters._
 
 import cats.effect._
 import cats.implicits._

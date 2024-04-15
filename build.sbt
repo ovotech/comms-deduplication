@@ -6,7 +6,7 @@ val catsVersion = "2.10.0"
 
 val catsEffectVersion = "3.5.4"
 
-val slf4jVersion = "2.0.12"
+val slf4jVersion = "2.0.13"
 
 val scalaJava8CompatVersion = "1.0.2"
 
@@ -18,7 +18,7 @@ val log4CatsVersion = "2.6.0"
 
 val munitVersion = "0.7.29"
 
-val logBackVersion = "1.5.4"
+val logBackVersion = "1.5.5"
 
 lazy val publicArtifactory = "Artifactory Realm" at "https://kaluza.jfrog.io/artifactory/maven"
 

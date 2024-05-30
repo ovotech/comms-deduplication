@@ -2,7 +2,7 @@ import sbtrelease.ExtraReleaseCommands
 import sbtrelease.ReleaseStateTransformations._
 import sbtrelease.tagsonly.TagsOnly._
 
-val catsVersion = "2.10.0"
+val catsVersion = "2.12.0"
 
 val catsEffectVersion = "3.5.4"
 

@@ -16,7 +16,7 @@ val meteorVersion = "1.0.84"
 
 val log4CatsVersion = "2.7.0"
 
-val munitVersion = "0.7.29"
+val munitVersion = "1.0.0"
 
 val logBackVersion = "1.5.6"
 

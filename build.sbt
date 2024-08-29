@@ -10,7 +10,7 @@ val slf4jVersion = "2.0.16"
 
 val scalaJava8CompatVersion = "1.0.2"
 
-val awsSdkVersion = "2.27.12"
+val awsSdkVersion = "2.27.15"
 
 val meteorVersion = "1.0.84"
 

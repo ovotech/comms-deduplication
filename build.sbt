@@ -4,7 +4,7 @@ import sbtrelease.tagsonly.TagsOnly._
 
 val catsVersion = "2.12.0"
 
-val catsEffectVersion = "3.5.4"
+val catsEffectVersion = "3.5.5"
 
 val slf4jVersion = "2.0.16"
 

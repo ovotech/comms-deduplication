@@ -8,4 +8,4 @@ addSbtPlugin("org.typelevel" % "sbt-tpolecat" % "0.5.2")
 
 addSbtPlugin("fr.qux" % "sbt-release-tags-only" % "0.5.0")
 
-addSbtPlugin("ch.epfl.scala" % "sbt-scalafix" % "0.11.1")
+addSbtPlugin("ch.epfl.scala" % "sbt-scalafix" % "0.14.3")

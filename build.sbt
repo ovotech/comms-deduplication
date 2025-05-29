@@ -14,7 +14,7 @@ val awsSdkVersion = "2.31.52"
 
 val meteorVersion = "1.0.84"
 
-val log4CatsVersion = "2.7.0"
+val log4CatsVersion = "2.7.1"
 
 val munitVersion = "0.7.29"
 

@@ -59,7 +59,7 @@ lazy val deduplication = (project in file("."))
     semanticdbEnabled := true,
     semanticdbVersion := scalafixSemanticdb.revision,
     testFrameworks += new TestFramework("munit.Framework"),
-    addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.3" cross CrossVersion.full),
+    addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.4" cross CrossVersion.full),
     scmInfo := Some(
       ScmInfo(
         url("https://github.com/ovotech/comms-deduplication"),

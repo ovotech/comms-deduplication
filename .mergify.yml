@@ -13,7 +13,6 @@ pull_request_rules:
         type: APPROVE
       queue:
         name: default
-      delete_head_branch: {}
   - name: automatically merge scala-steward's patch version PRs
     conditions:
       - author=kaluza-libraries
@@ -24,4 +23,3 @@ pull_request_rules:
         type: APPROVE
       queue:
         name: default
-      delete_head_branch: {}

@@ -1,0 +1,26 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: comms-deduplication
+  description: Communications deduplication service
+  annotations:
+    github.com/project-slug: ovotech/comms-deduplication
+spec:
+  owner: service-comms
+  domain: comms-build-and-deployment
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: comms-deduplication
+  description: Communications deduplication service
+  annotations:
+    github.com/project-slug: ovotech/comms-deduplication
+    backstage.io/source-location: url:https://github.com/ovotech/comms-deduplication/tree/main
+  tags: []
+spec:
+  type: service
+  lifecycle: production
+  owner: service-comms
+  system: comms-deduplication

@@ -18,7 +18,7 @@ val log4CatsVersion = "2.8.0"
 
 val munitVersion = "0.7.29"
 
-val logBackVersion = "1.6.0"
+val logBackVersion = "1.6.1"
 
 lazy val publicArtifactory = "Artifactory Realm" at "https://kaluza.jfrog.io/artifactory/maven"
 
